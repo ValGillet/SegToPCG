@@ -1,5 +1,5 @@
-from utils.general.ids_to_pcg import get_nbit_chunk_coord, get_chunk_coord, get_segId, get_chunkId
-from utils.general.utils_local import read_chunk_edges_local
+from segtopcg.utils.ids_to_pcg import get_nbit_chunk_coord, get_chunk_coord, get_segId, get_chunkId
+from segtopcg.utils.utils_local import read_chunk_edges_local
 
 from cloudfiles import CloudFiles
 import daisy
@@ -70,199 +70,176 @@ def get_chunk_ids_from_coords(coords: np.ndarray, bits_per_dim, layer_bits = 8):
     return result
 
 
-def connected_components_to_cloud(chunk_coord,
-                                  components_dir,
-                                  edges_dir,
-                                  base_threshold,
-                                  db_host,
-                                  db_name,
-                                  upload,
-                                  bits_per_dim,
-                                  chunks_to_cut,
-                                  interface,
-                                  use_quality_score
-                                 ):
+def get_adjacent_chunk_coords(chunk_coords, 
+                              chunks_to_cut):
     '''
-    Filters edges according to threshold to compute connected components
-    Threshold is Jan's threshold obtained with evaluation
+    Produces list of possible chunks adjacent to the chunk being processed, which are not to be isolated. 
+    If chunk is to be isolated, returns empty np.array.
+    
+    Args:
+            
+        chunk_coords ([3] list of ``int``):
+        
+            Coordinates of the chunk (XYZ) to process.
+            
+        chunks_to_cut ([n,3] list of ``int``):
+        
+            List of chunk coordinates to be isolated from neighbors. 
     '''
     
-    
-    client = pymongo.MongoClient(db_host)
-    db = client[db_name]
-    
-    info = db[f'components_info_{str(base_threshold)[2:]}']
-    
-    main_chunk = np.array(chunk_coord, dtype=int) # xyz
-    
-    if check_block(info, main_chunk):
-        print(f'chunk_coord: {chunk_coord} skipped')
-        return False
-
-    if use_quality_score:
-        stats_coll = db['chunk_stats']
-        stats = stats_coll.find_one({'chunk': chunk_coord})
-        
-        try:
-            threshold = stats['stats']['weighted_threshold']
-        except:
-            threshold = 1-base_threshold
-    else:
-        threshold = 1-base_threshold
-        
-
-    # If asked to cut dataset, select corresponding list of chunks to cut
-    adj_chunks_to_cut = []
-    d_chunks = defaultdict(list)
-    d_interface = defaultdict(list)
-
-    if chunks_to_cut:
-        
-        if isinstance(chunks_to_cut[0], list):
-            lst = [chunks_to_cut, interface]
-
-            for i,d in zip([[0,1],[1,0]], [d_chunks, d_interface]):
-                d_lst = [dict(zip(k,v)) for k,v in zip(lst[i[0]],
-                                                       lst[i[1]])]
-                for di in d_lst:
-                    for key, value in di.items():
-                        d[key].append(value)
-                        
-        elif isinstance(chunks_to_cut[0], tuple):
-            for c, il in zip(chunks_to_cut, interface):
-                d_chunks[c] += il
-            for il, c in zip(interface, chunks_to_cut):
-                for i in il:
-                    d_interface[i].append(c)
-
-        if tuple(chunk_coord) in list(d_chunks.keys()):
-            adj_chunks_to_cut += d_chunks[tuple(chunk_coord)]
-        if tuple(chunk_coord) in list(d_interface.keys()):
-            adj_chunks_to_cut += d_interface[tuple(chunk_coord)]
-
-    # Select adjacent chunks excluding chunks at interface of cut
-    adj_chunks = []
-    thresholds_adj = []
-
+    adj_chunk_coords_list = np.empty([6,3], dtype=int)
+    i=0
     for d in [-1,1]:
         for dim in range(3):
             diff = np.zeros([3], dtype=int)
             diff[dim] = d
-            adj_chunk_coord = tuple(main_chunk + diff)
-
-            if adj_chunk_coord not in adj_chunks_to_cut and np.all(np.array(adj_chunk_coord) > 0):
-                adj_chunks.append(adj_chunk_coord)
-                
-                # If quality score is to be used, bt edges need to be thresholded according to neighbor chunk's threshold
-                if use_quality_score:
-                    stats = stats_coll.find_one({'chunk': [int(c) for c in adj_chunk_coord]})
-
-                    try:
-                        thresholds_adj.append(stats['stats']['weighted_threshold'])
-                    except:
-                        thresholds_adj.append(threshold)
-                else:
-                    thresholds_adj.append(threshold)
-                        
-    # Read edges
-    main_edges = read_chunk_edges_local(edges_dir, [main_chunk])
-
-    edges = []
-    scores = []
-
-    for e_type in ['in', 'between', 'cross']:
-        edges.append(main_edges[e_type].get_pairs())
-        scores.append(main_edges[e_type].affinities)
+            adj_chunk_coords_list[i,:] = chunk_coords + diff
+            i += 1
+    adj_chunk_coords_list = adj_chunk_coords_list[np.all(adj_chunk_coords_list >= 0,1)]
+    # Is chunk to be isolated?
+    if np.any(np.all(chunk_coords == chunks_to_cut, 1)):
+        return  np.empty([0,3],dtype=int)
     
-    if edges[0].size and edges[1].size: # cross_chunk (all_edges[2]) could exist but it doesn't make sense
-        edges = np.concatenate(edges).astype(np.uint64)
-        scores = np.concatenate(scores).astype(np.float32)
+    # If not, isolate from any chunk that needs to be isolated
+    mask = [np.logical_not(np.any(np.all(chunk == chunks_to_cut, 1))) for chunk in adj_chunk_coords_list]
+
+    return adj_chunk_coords_list[mask]
+    
+    
+
+def get_main_chunk_edges(edges_dir, 
+                         main_chunk_coords, 
+                         adj_chunk_coords, 
+                         bits_per_dim):
+    '''
+    Reads local edges for main chunk and adjacent chunks.
+    Returns edges that cross into the main chunk, and their scores.
+    
+    Args:
+    
+        edges_dir (``str``):
         
-        # Get chunk ID for each node contained in edges
-        main_edges_chunks_ids = get_chunk_ids_from_node_ids(edges, bits_per_dim)
+            Local path to the directory containing edges in protobuf format.
+            
+        main_chunk_coords ([3] list of ``int``):
         
-        # Mask out any edge connecting chunk to interface
-        if adj_chunks_to_cut:
-            chunk_ids_to_cut = get_chunk_ids_from_coords(adj_chunks_to_cut, bits_per_dim)
+            Coordinates of the chunk (XYZ) to process.
             
-            mask = np.logical_not(np.any(np.isin(main_edges_chunks_ids, chunk_ids_to_cut),1))
-            edges = edges[mask]
-            scores = scores[mask]
-
-        # Do it for each adjacent chunk so that no edges crossing the interface are kept even for adj_chunks
-        all_adj_edges = []
-        all_adj_scores = []
-
-        for chunk, adj_threshold in zip(adj_chunks, thresholds_adj):
-            # Threshold needs to be whatever is the maximum (stricter) between main_chunk and adj_chunk
-            adj_threshold = max(threshold, adj_threshold)
-            adj_chunk_id = get_chunk_ids_from_coords([chunk], bits_per_dim)
-            
-            c_to_cut = []
-
-            if chunk in list(d_chunks.keys()):
-                c_to_cut += d_chunks[chunk]
-            if chunk in list(d_interface.keys()):
-                c_to_cut += d_interface[chunk]
-
-            adj_edges = read_chunk_edges_local(edges_dir, [chunk])
-
-            a_edges = []
-            a_scores = []
-
-            for e_type in ['in', 'between', 'cross']:
-                a_edges.append(adj_edges[e_type].get_pairs())
-                a_scores.append(adj_edges[e_type].affinities)
-
-            a_edges = np.concatenate(a_edges).astype(np.uint64)
-            a_scores = np.concatenate(a_scores).astype(np.float32)
-
-            # Mask out any edge connecting chunk to interface
-            if c_to_cut and a_edges.size:
-                chunk_ids_to_cut = get_chunk_ids_from_coords(c_to_cut, bits_per_dim)
-                edges_chunks_ids = get_chunk_ids_from_node_ids(a_edges, bits_per_dim)
-
-                mask = np.logical_not(np.any(np.isin(edges_chunks_ids, chunk_ids_to_cut),1))
-                a_edges = a_edges[mask]
-                a_scores = a_scores[mask]
-            
-            # Keep only edges with higher threshold when it comes to adj edges
-            a_edges = a_edges[a_scores >= adj_threshold]
-            a_scores = a_scores[a_scores >= adj_threshold]
-            
-            # Same for any edges from the main_chunk that cross to this chunk
-            main_edges_chunks_ids = get_chunk_ids_from_node_ids(edges, bits_per_dim)
-            
-            mask = np.any(np.isin(main_edges_chunks_ids, adj_chunk_id), 1)
-            mask_th = scores <= adj_threshold
-            
-            edges = edges[np.logical_not(mask & mask_th)]
-            scores = scores[np.logical_not(mask & mask_th)]
-            
-            if a_edges.size:
-                all_adj_edges.append(a_edges)
-                all_adj_scores.append(a_scores)
+        adj_chunk_coords ([n,3] list of ``int``):
         
-        if len(all_adj_edges):
-            all_adj_edges = np.concatenate(all_adj_edges)
-            all_adj_scores = np.concatenate(all_adj_scores)
-
-            all_edges = np.concatenate([edges, all_adj_edges]).astype(np.uint64)
-            all_scores = np.concatenate([scores, all_adj_scores]).astype(np.float32)
-        else:
-            all_edges = edges
-            all_scores = scores
+            List of coordinates of the adjacent chunks (XYZ) to the one being processed.
         
+        bits_per_dim (``int``):
+            
+            Number of bits used to encode chunk ID in graphene format.
+    '''
+    
+    main_chunk_edges = read_chunk_edges_local(edges_dir, [main_chunk_coords])
+    
+    # Read edges for main chunk and adjacent chunks to consider
+    edges = []
+    scores = []    
+    for e_type in ['in', 'between', 'cross']:
+        edges.append(main_chunk_edges[e_type].get_pairs())
+        scores.append(main_chunk_edges[e_type].affinities)
+        
+    if adj_chunk_coords.size:
+        adj_chunk_edges = read_chunk_edges_local(edges_dir, adj_chunk_coords)
+        for e_type in ['between', 'cross']:
+            edges.append(adj_chunk_edges[e_type].get_pairs())
+            scores.append(adj_chunk_edges[e_type].affinities)
+        chunk_ids = get_chunk_ids_from_coords(np.concatenate([[main_chunk_coords], adj_chunk_coords]), bits_per_dim)
+    else:
+        chunk_ids = get_chunk_ids_from_coords([main_chunk_coords], bits_per_dim)
+
+    edges = np.concatenate(edges, dtype=np.uint64)
+    scores = np.concatenate(scores, dtype=np.float32)
+    
+    # Filter edges to keep only those within or crossing to the main chunk
+    
+    if edges.size:
+        edges_chunks_ids = get_chunk_ids_from_node_ids(edges, bits_per_dim)
+        mask = np.all(np.isin(edges_chunks_ids, chunk_ids),1)
+        return edges[mask], scores[mask]
+    else:
+        return np.array([]), np.array([])
+    
+
+
+def connected_components_to_cloud_worker(chunk_coord,
+                                         components_dir,
+                                         edges_dir,
+                                         edges_threshold,
+                                         db_host,
+                                         db_name,
+                                         chunks_to_cut                                  
+                                         ):
+    '''
+    Worker script. Computes connected components by filtering edges based on an affinity threshold.
+    
+    Args:
+    
+        chunk_coord ([3] list of ``int``):
+        
+            Coordinates of the chunk (XYZ) to process.
+                
+        components_dir (``str``):
+        
+            Path to the location where to write components in the Google cloud bucket. 
+            
+        edges_dir (``str``):
+        
+            Local path to the directory containing edges in protobuf format. 
+            
+        edges_threshold (``float``):
+        
+            Affinity threshold used to compute connected components. Threshold corresponds to an affinity score from 0 (bad) to 1 (good).
+            Corresponds to 1-merge_score.
+            
+        db_host (``str``):
+        
+            URI to the MongoDB containing information relevant to the isolation mode.
+            
+        db_name (``str``):
+        
+            MongoDB database containing information relevant to the isolation mode.
+            
+        chunks_to_cut ([n,3] list of ``int``):
+        
+            List of chunk coordinates to be isolated from neighbors. Chunk process will be isolated if contained in this list, or will be isolated from a neighbor if neighbor is contained in this list.
+    '''
+    
+    # Initiate mongoDB client
+    client = pymongo.MongoClient(db_host)
+    db = client[db_name]
+    info = db['components_info']
+    bits_per_dim = db['info_ingest'].find_one({'task': 'nodes_translation'}, {'spatial_bits':1})['spatial_bits']
+    
+    main_chunk = np.array(chunk_coord, dtype=int) # xyz
+    
+    # Check if chunk was processed
+    if check_block(info, main_chunk):
+        print(f'chunk_coord: {chunk_coord} skipped')
+        return False
+        
+    # Obtain adjacent chunks to include
+    adj_chunk_list = get_adjacent_chunk_coords(main_chunk, chunks_to_cut)
+    
+    # Obtain all edges crossing into main chunk from any adjacent chunk considered
+    edges, scores = get_main_chunk_edges(edges_dir, main_chunk, adj_chunk_list, bits_per_dim)
+    
+    if edges.size:
         # Threshold edges
         # Only keep if affinity score >= threshold
-        thresh_edges = all_edges[all_scores >= threshold]
-        thresh_scores = all_scores[all_scores >= threshold]
+        thresh_edges = edges[scores >= edges_threshold]
+        thresh_scores = scores[scores >= edges_threshold]
 
         # Get connected components
         G = nx.Graph()
         G.add_edges_from(thresh_edges)
         
-        nodes = np.unique(np.concatenate(all_edges)) 
+        # Nodes include even thresholded edges because they exist but are isolated
+        nodes = np.unique(edges)
 
         G.add_nodes_from(nodes) # Include isolated nodes
         components = [list(map(int, c)) for c in list(nx.connected_components(G))]
@@ -270,22 +247,23 @@ def connected_components_to_cloud(chunk_coord,
         components = []
    
     # Upload
-    if upload and components:
+    if components:
         put_chunk_components(components_dir, 
                              components,  
                              chunk_coord)
 
+        print(f'chunk_coord: {chunk_coord} uploaded')
+    else:
+        print(f'No components at {chunk_coord}')
     document = {
                 'graphene_chunk_coord': main_chunk.tolist(), # xyz
-                'threshold': threshold,
-                'upload': upload,
-                'use_quality_score': use_quality_score,
+                'threshold': edges_threshold,
+                'no_components': not components,
                 'time': time.time()
                 }
 
     info.insert_one(document)
 
-    print(f'chunk_coord: {chunk_coord} uploaded')
     
     return True
     
@@ -293,7 +271,6 @@ def connected_components_to_cloud(chunk_coord,
 def check_block(coll, chunk_coord):
 
     done = coll.count_documents({'graphene_chunk_coord': chunk_coord.tolist()}) >=1
-    return done
 
 
 if __name__ == '__main__':

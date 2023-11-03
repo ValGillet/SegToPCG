@@ -132,9 +132,6 @@ def upload_components_chunkwise(
             
     '''
     
-    if len(db_host) == 0:
-        db_host = None
-
     cf = CloudFiles(cloudpath)
     
     edges_dir_cloud = cloudpath + '/' +  edges_dir_cloud

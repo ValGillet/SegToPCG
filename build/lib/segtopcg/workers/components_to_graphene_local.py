@@ -1,5 +1,5 @@
-from utils.general.ids_to_pcg import get_nbit_chunk_coord, get_chunk_coord, get_segId, get_chunkId
-from utils.general.utils_local import read_chunk_edges_local
+from segtopcg.utils.ids_to_pcg import get_nbit_chunk_coord, get_chunk_coord, get_segId, get_chunkId
+from segtopcg.utils.utils_local import read_chunk_edges_local
 
 from cloudfiles import CloudFiles
 import daisy
@@ -252,6 +252,9 @@ def connected_components_to_cloud_worker(chunk_coord,
                              components,  
                              chunk_coord)
 
+        print(f'chunk_coord: {chunk_coord} uploaded')
+    else:
+        print(f'No components at {chunk_coord}')
     document = {
                 'graphene_chunk_coord': main_chunk.tolist(), # xyz
                 'threshold': edges_threshold,
@@ -261,7 +264,6 @@ def connected_components_to_cloud_worker(chunk_coord,
 
     info.insert_one(document)
 
-    print(f'chunk_coord: {chunk_coord} uploaded')
     
     return True
     

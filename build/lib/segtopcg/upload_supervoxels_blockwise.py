@@ -66,9 +66,6 @@ def supervoxel_to_graphene_blockwise(fragments_file,
             False: Will interrupt process if a volume is present a destination.
     '''
     
-    if len(db_host) == 0:
-        db_host = None
-
     fragments = daisy.open_ds(fragments_file, 'frags')
     chunk_size = daisy.Coordinate(chunk_voxel_size) * fragments.voxel_size
     bit_per_chunk_dim = get_nbit_chunk_coord(fragments, chunk_size)

@@ -99,9 +99,6 @@ def edges_to_graphene_blockwise(
             
     '''
     
-    if len(db_host) == 0:
-        db_host = None
-
     if write_local:
         edges_dir_local = f'/mnt/hdd1/SRC/SegmentationPipeline/data/edges/{db_name}'
         if not os.path.exists(edges_dir_local):
