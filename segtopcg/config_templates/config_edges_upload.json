@@ -1,0 +1,10 @@
+{
+  "fragments_file": "PATH_TO_SUPERVOXELS",
+  "cloudpath": "gs://BUCKET_CLOUD",
+  "db_host": "DB_URI",
+  "db_name": "DB_NAME",
+  "chunk_voxel_size": [],
+  "edges_collection": "EDGES_COLLECTION_NAME",
+  "edges_dir_local": "PATH_TO_LOCAL_EDGES_DIR",
+  "num_workers": 
+}

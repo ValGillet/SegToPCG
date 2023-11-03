@@ -1,0 +1,10 @@
+{
+  "fragments_file": "PATH_TO_SUPERVOXELS",
+  "cloudpath": "gs://BUCKET_CLOUD",
+  "db_host": "DB_URI",
+  "db_name": "DB_NAME",
+  "chunk_voxel_size": [],
+  "cloudvolume_provenance": "DESCRIPTION CLOUDVOLUME",
+  "num_workers": ,
+  "force_upload": true
+}
