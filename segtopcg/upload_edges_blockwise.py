@@ -99,6 +99,13 @@ def edges_to_graphene_blockwise(
             
     '''
     
+    # Check that folder exists at cloudpath. If not, fragments have not been uploaded yet or could be a typo.
+    bucket = CloudFiles(cloudpath[:cloudpath.rfind('/')])
+    if not bucket.isdir(cloudpath[cloudpath.rfind('/')+1:]):
+        print(f'Bucket does not exist at provided location: {cloudpath}')
+        print('Aborting.')
+        sys.exist()
+
     if len(db_host) == 0:
         db_host = None
 
