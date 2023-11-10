@@ -69,6 +69,7 @@ def upload_components_chunkwise(
                                 edges_threshold,
                                 num_workers,
                                 isolate_chunks_mode,
+                                group_size,
                                 overwrite=False,                    
                                 start_over=False,
                                 edges_dir_cloud = 'edges',
@@ -112,6 +113,10 @@ def upload_components_chunkwise(
         
             Mode to use to isolate chunks. If equivalent to False, chunks will not be isolated. See isolate_chunks function for modes description.
             
+        group_size (``int``):
+            
+            Number of chunks to group together.
+            
         overwrite (``bool``):
         
             True: components will be uploaded even if they exist at upload location. 
@@ -136,9 +141,8 @@ def upload_components_chunkwise(
     bucket = CloudFiles(cloudpath[:cloudpath.rfind('/')])
     if not bucket.isdir(cloudpath[cloudpath.rfind('/')+1:]):
         print(f'Bucket does not exist at provided location: {cloudpath}')
-        print('Aborting.')
-        sys.exist()
-
+        print('Aborting...')
+        sys.exit()
 
     if len(db_host) == 0:
         db_host = None
@@ -172,7 +176,7 @@ def upload_components_chunkwise(
     logging.info(f'Components will be uploaded at {components_dir}')
     
     # Prepare list of chunks to isolate
-    chunk_list, n_chunks = get_chunk_list(fragments_file, chunk_size)
+    chunk_list, chunk_groups, n_chunks = get_chunk_list(fragments_file, chunk_size, group_size)
     
     if not isolate_chunks_mode:
         chunks_to_cut = []
@@ -191,7 +195,9 @@ def upload_components_chunkwise(
                edges_threshold,
                db_host,
                db_name,
-               chunks_to_cut
+               chunks_to_cut,
+               chunk_list,
+               chunk_groups
               ] for chunk_coord in chunk_list]
 
     try:
@@ -213,6 +219,7 @@ def upload_components_chunkwise(
                   'components_cloud': components_dir,
                   'edges_threshold': float(edges_threshold),
                   'isolate_chunks_mode': str(isolate_chunks_mode),
+                  'group_size': group_size,
                   'date': date.today().strftime('%d%m%Y')
                  }
     info_ingest.insert_one(doc_ingest)

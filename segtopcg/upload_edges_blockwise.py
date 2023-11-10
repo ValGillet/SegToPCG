@@ -37,9 +37,9 @@ def edges_to_graphene_blockwise(
                       edges_collection,
                       edges_dir_local,
                       num_workers,
-                      upload=True,
                       edges_dir_cloud='edges',
                       write_local=True,
+                      overwrite=False,
                       start_over=False
                                 ):
     
@@ -80,10 +80,6 @@ def edges_to_graphene_blockwise(
         
             Number of workers to distribute the tasks to.
         
-        upload (``str``):
-        
-            Whether to upload edges to cloud destination.
-        
         edges_dir_cloud (``str``):
         
             Name of the edges directory in the cloud bucket. 'edges' by default.
@@ -92,11 +88,15 @@ def edges_to_graphene_blockwise(
         
             Whether to write edges to local destination.
             
+        overwrite (``bool``):
+        
+            True: edges will be uploaded even if they exist at upload location. 
+            False: process will be exited if components exist at upload location.
+                        
         start_over (``bool``):
         
             True: progress will be wiped to start from scratch.
             False: will start from where we left off and skip processed edges, based on progress db.
-            
     '''
     
     # Check that folder exists at cloudpath. If not, fragments have not been uploaded yet or could be a typo.
@@ -116,6 +116,16 @@ def edges_to_graphene_blockwise(
 
     cf = CloudFiles(cloudpath)
     edges_dir_cloud = cf.cloudpath + '/' + edges_dir_cloud
+    
+    # Check if edges already exist at destination
+    if cf.isdir('edges'):
+        if overwrite:
+            print(f'Edges already exist at path {cloudpath}')
+            print('Edges will be overwritten')
+        else:
+            print(f'Edges already exist at path {cloudpath}')
+            print('Aborting...')
+            sys.exit()
             
     fragments = daisy.open_ds(fragments_file, 'frags')
     chunk_size = daisy.Coordinate(chunk_voxel_size) * fragments.voxel_size
@@ -161,8 +171,7 @@ def edges_to_graphene_blockwise(
                                                     chunk_size,
                                                     bit_per_chunk_dim,
                                                     edges_dir_cloud,
-                                                    edges_dir_local,
-                                                    upload,                    
+                                                    edges_dir_local,              
                                                     write_local,
                                                     num_workers),
                 check_function = lambda b: check_block(
@@ -196,7 +205,6 @@ def translate_edges_worker(db_host,
                            bit_per_chunk_dim,
                            edges_dir_cloud,
                            edges_dir_local,
-                           upload,
                            write_local,
                            num_workers,
                            block = None
@@ -244,10 +252,6 @@ def translate_edges_worker(db_host,
         edges_dir_local (``str``):
         
             Local directory where to save edges in protobuf format.
-            
-        upload (``str``):
-        
-            Whether to upload edges to cloud destination.
             
         write_local (``bool``):
         
@@ -428,11 +432,10 @@ def translate_edges_worker(db_host,
                 EDGE_TYPES.cross_chunk: cross_chunk_edges
                         }
 
-        if upload:
-            put_chunk_edges(edges_dir_cloud, 
-                            chunk_coord[::-1], # x,y,z
-                            edges_proto_d, 
-                            compression_level = 22)
+        put_chunk_edges(edges_dir_cloud, 
+                        chunk_coord[::-1], # x,y,z
+                        edges_proto_d, 
+                        compression_level = 22)
         
         if write_local:          
             write_chunk_edges_local(edges_dir_local, 

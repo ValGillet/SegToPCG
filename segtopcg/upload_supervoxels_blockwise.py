@@ -25,7 +25,8 @@ def supervoxel_to_graphene_blockwise(fragments_file,
                                      chunk_voxel_size,
                                      cloudvolume_provenance,
                                      num_workers,
-                                     force_upload = False):
+                                     overwrite = False,
+                                     start_over = False):
 
     '''
     Start blockwise translation of supervoxel IDs into graphene format, and upload to Google cloud bucket (by default in "fragments" dir).
@@ -60,10 +61,15 @@ def supervoxel_to_graphene_blockwise(fragments_file,
         
             Number of workers to distribute the tasks to.
             
-        force_upload (``bool``):
+        overwrite (``bool``):
             
             True: Will upload even if a volume is present at destination.
             False: Will interrupt process if a volume is present a destination.
+            
+        start_over (``bool``):
+        
+            True: progress will be wiped to start from scratch.
+            False: will start from where we left off and skip processed edges, based on progress db.
     '''
     
     if len(db_host) == 0:
@@ -81,6 +87,12 @@ def supervoxel_to_graphene_blockwise(fragments_file,
         blocks_translated.create_index(
                   [('block_id', pymongo.ASCENDING)],
                   name='block_id')
+    elif start_over:
+        db.drop_collection('blocks_edges_in_PCG')
+        blocks_in_PCG = db['blocks_edges_in_PCG']
+        blocks_in_PCG.create_index(
+                                   [('block_id', pymongo.ASCENDING)],
+                                   name = 'block_id')
     else:
         blocks_translated = db['blocks_translated']
     
@@ -91,11 +103,12 @@ def supervoxel_to_graphene_blockwise(fragments_file,
     
     # Check if volume already exists at destination
     if cf.isdir('fragments'):
-        if force_upload:
+        if overwrite:
             print(f'Fragments already exist at path {cloudpath}')
             print('Overlapping fragments volume will be overwritten')
         else:
             print(f'Fragments already exist at path {cloudpath}')
+            print('Aborting...')
             sys.exit()
 
     # Initiate CloudVolume object

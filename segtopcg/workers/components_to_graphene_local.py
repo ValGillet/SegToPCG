@@ -71,7 +71,9 @@ def get_chunk_ids_from_coords(coords: np.ndarray, bits_per_dim, layer_bits = 8):
 
 
 def get_adjacent_chunk_coords(chunk_coords, 
-                              chunks_to_cut):
+                              chunks_to_cut,
+                              chunk_list,
+                              chunk_groups):
     '''
     Produces list of possible chunks adjacent to the chunk being processed, which are not to be isolated. 
     If chunk is to be isolated, returns empty np.array.
@@ -86,8 +88,11 @@ def get_adjacent_chunk_coords(chunk_coords,
         
             List of chunk coordinates to be isolated from neighbors. 
     '''
+    chunk_list = np.array(chunk_list)
+    chunk_groups = np.array(chunk_groups)
     
     adj_chunk_coords_list = np.empty([6,3], dtype=int)
+    
     i=0
     for d in [-1,1]:
         for dim in range(3):
@@ -95,14 +100,21 @@ def get_adjacent_chunk_coords(chunk_coords,
             diff[dim] = d
             adj_chunk_coords_list[i,:] = chunk_coords + diff
             i += 1
-    adj_chunk_coords_list = adj_chunk_coords_list[np.all(adj_chunk_coords_list >= 0,1)]
+    adj_chunk_coords_list = adj_chunk_coords_list[np.all(adj_chunk_coords_list >= 0, 1)]
+
     # Is chunk to be isolated?
     if np.any(np.all(chunk_coords == chunks_to_cut, 1)):
-        return  np.empty([0,3],dtype=int)
-    
-    # If not, isolate from any chunk that needs to be isolated
-    mask = [np.logical_not(np.any(np.all(chunk == chunks_to_cut, 1))) for chunk in adj_chunk_coords_list]
+        # If yes, simply isolate it from all chunks around
+        mask = np.zeros(adj_chunk_coords_list.shape[0], dtype=bool)
+    else:
+        # If not isolate from any chunk that needs to be isolated...
+        mask = np.array([np.logical_not(np.any(np.all(chunk == chunks_to_cut, 1))) for chunk in adj_chunk_coords_list])
 
+    # Always keep all chunks in the same group connected to each other
+    main_group = chunk_groups[np.all(chunk_list == chunk_coords, 1)]
+    for i, chunk in enumerate(adj_chunk_coords_list):
+        mask[i] = np.all(chunk_groups[np.all(chunk == np.array(chunk_list), 1)] == main_group, 1)
+        
     return adj_chunk_coords_list[mask]
     
     
@@ -172,7 +184,9 @@ def connected_components_to_cloud_worker(chunk_coord,
                                          edges_threshold,
                                          db_host,
                                          db_name,
-                                         chunks_to_cut                                  
+                                         chunks_to_cut,
+                                         chunk_list,
+                                         chunk_groups
                                          ):
     '''
     Worker script. Computes connected components by filtering edges based on an affinity threshold.
@@ -223,7 +237,7 @@ def connected_components_to_cloud_worker(chunk_coord,
         return False
         
     # Obtain adjacent chunks to include
-    adj_chunk_list = get_adjacent_chunk_coords(main_chunk, chunks_to_cut)
+    adj_chunk_list = get_adjacent_chunk_coords(main_chunk, chunks_to_cut, chunk_list, chunk_groups)
     
     # Obtain all edges crossing into main chunk from any adjacent chunk considered
     edges, scores = get_main_chunk_edges(edges_dir, main_chunk, adj_chunk_list, bits_per_dim)
