@@ -1,5 +1,5 @@
-from utils.ids_to_pcg import get_nbit_chunk_coord, get_chunk_coord, get_segId, get_chunkId, get_chunk_list
-from workers.components_to_graphene_local import connected_components_to_cloud_worker
+from segtopcg.utils.ids_to_pcg import get_nbit_chunk_coord, get_chunk_coord, get_segId, get_chunkId, get_chunk_list
+from segtopcg.workers.components_to_graphene_local import connected_components_to_cloud_worker
 
 import traceback
 from cloudfiles import CloudFiles
@@ -115,7 +115,7 @@ def upload_components_chunkwise(
             
         group_size (``int``):
             
-            Number of chunks to group together.
+            Number of chunks to group together in each dimension.
             
         overwrite (``bool``):
         
@@ -162,7 +162,7 @@ def upload_components_chunkwise(
     if start_over:
         items = list(cf.list(components_dir_cloud))
         logging.info(f'Components directory: {components_dir}')
-        answer = input(f'Do you want to delete {len(items)} components and start over? Y/N')
+        answer = input(f'Do you want to delete {len(items)} components and start over? Y/N ')
         if answer in ['Y', 'y', 'Yes', 'yes']:
             db['components_info'].drop()
             cf.delete(items)
@@ -176,7 +176,7 @@ def upload_components_chunkwise(
     logging.info(f'Components will be uploaded at {components_dir}')
     
     # Prepare list of chunks to isolate
-    chunk_list, chunk_groups, n_chunks = get_chunk_list(fragments_file, chunk_size, group_size)
+    chunk_list, n_chunks = get_chunk_list(fragments_file, chunk_size)
     
     if not isolate_chunks_mode:
         chunks_to_cut = []
@@ -186,7 +186,7 @@ def upload_components_chunkwise(
                                        db_host,
                                        db_name)
     else:
-        raise RuntimeError("Specify whether to isolate chunks and how.")
+        raise RuntimeError("Specify isolate_chunks_mode")
 
     # Prepare inputs for multiprocessing
     inputs = [[chunk_coord,
@@ -196,8 +196,7 @@ def upload_components_chunkwise(
                db_host,
                db_name,
                chunks_to_cut,
-               chunk_list,
-               chunk_groups
+               group_size
               ] for chunk_coord in chunk_list]
 
     try:
@@ -223,6 +222,8 @@ def upload_components_chunkwise(
                   'date': date.today().strftime('%d%m%Y')
                  }
     info_ingest.insert_one(doc_ingest)
+    
+    
 
     
 

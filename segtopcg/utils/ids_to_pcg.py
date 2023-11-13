@@ -36,7 +36,8 @@ def get_segId(fragments,
            
     Return:
         
-        Array of old IDs, array of translated IDs.
+        Array of old IDs.
+        Array of translated IDs.
             
     '''
     
@@ -76,8 +77,7 @@ def get_segId(fragments,
     
 
 def get_chunk_list(fragments, 
-                   chunk_size,
-                   group_size):
+                   chunk_size):
     '''
     Compute list of all xyz chunk coordinates for a given dataset.
     
@@ -91,13 +91,10 @@ def get_chunk_list(fragments,
             
             Chunk size in world units (ZYX). Required to compute chunk coordinates if none provided.
             
-        group_size (``int``):
-            
-            Number of chunks to group together in each dimension.
-            
     Return:
         
         [n] list of [3] tuples containing possible chunk coordinates (XYZ).
+        List of [3] containing max number of chunks in each dimension (XYZ).
             
     '''
 
@@ -110,12 +107,9 @@ def get_chunk_list(fragments,
     for ix, x in enumerate(range(n_chunks[2])):
         for iy, y in enumerate(range(n_chunks[1])):
             for iz, z in enumerate(range(n_chunks[0])):
-                chunk = (x,y,z)
-                chunk_list.append(chunk)
-                group = tuple((np.array([ix,iy,iz])) // group_size)
-                chunk_groups.append(group)
+                chunk_list.append((x,y,z))
     
-    return chunk_list, chunk_groups, n_chunks
+    return chunk_list, n_chunks
 
 
 def get_chunk_coord(fragments, chunk_roi, chunk_size, total_roi = None):

@@ -1,5 +1,5 @@
-from utils.ids_to_pcg import get_nbit_chunk_coord, get_chunk_coord, get_segId, get_chunkId
-from utils.utils_local import write_chunk_edges_local
+from .utils.ids_to_pcg import get_nbit_chunk_coord, get_chunk_coord, get_segId, get_chunkId
+from .utils.utils_local import write_chunk_edges_local
 
 from cloudfiles import CloudFiles
 import daisy
@@ -276,7 +276,7 @@ def translate_edges_worker(db_host,
     # Obtain rag provider
     rag_provider = daisy.persistence.MongoDbGraphProvider(
                                                  db_name,
-                                                          db_host,
+                                                 db_host,
                                                  mode = 'r',
                                                  directed = False,
                                                  edges_collection = edges_collection,
