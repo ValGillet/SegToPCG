@@ -88,11 +88,11 @@ def supervoxel_to_graphene_blockwise(fragments_file,
                   [('block_id', pymongo.ASCENDING)],
                   name='block_id')
     elif start_over:
-        db.drop_collection('blocks_translated')
-        blocks_translated = db['blocks_translated']
-        blocks_translated.create_index(
-                                       [('block_id', pymongo.ASCENDING)],
-                                       name = 'block_id')
+        db.drop_collection('blocks_edges_in_PCG')
+        blocks_in_PCG = db['blocks_edges_in_PCG']
+        blocks_in_PCG.create_index(
+                                   [('block_id', pymongo.ASCENDING)],
+                                   name = 'block_id')
     else:
         blocks_translated = db['blocks_translated']
     
