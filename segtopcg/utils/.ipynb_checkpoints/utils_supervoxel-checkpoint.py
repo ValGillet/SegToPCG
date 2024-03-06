@@ -1,5 +1,8 @@
+import funlib.persistence as pers
 import daisy
 import numpy as np    
+
+from funlib.segment.arrays.replace_values import replace_values
 
 
 def get_segId(fragments, 
@@ -40,7 +43,6 @@ def get_segId(fragments,
         Array of translated IDs.
             
     '''
-    
 
     rag_provider = daisy.persistence.MongoDbGraphProvider(
                                 db_name,
@@ -98,7 +100,7 @@ def get_chunk_list(fragments,
             
     '''
 
-    ds = daisy.open_ds(fragments, 'frags')
+    ds = pers.open_ds(fragments, 'frags')
     chunk_shape = daisy.Coordinate(chunk_size) / daisy.Coordinate(ds.voxel_size)
     n_chunks = np.ceil(np.array(ds.shape)/np.array(chunk_shape)).astype(int)
 
@@ -154,14 +156,14 @@ def get_chunk_coord(fragments, chunk_roi, chunk_size, total_roi = None):
     return list(chunk_rel_offset//chunk_size) 
 
 
-def get_chunkId(bit_per_chunk_dim, fragments=None, chunk_roi=None, chunk_size=None, chunk_coord=None):
+def get_chunkId(bits_per_chunk_dim, fragments=None, chunk_roi=None, chunk_size=None, chunk_coord=None):
 
     '''
     Computes the chunk ID for a given block, based on graphene format.
     
     Args:
     
-        bit_per_chunk_dim (``int``):
+        bits_per_chunk_dim (``int``):
         
             Number of bits used to encode chunk ID.
     
@@ -195,9 +197,9 @@ def get_chunkId(bit_per_chunk_dim, fragments=None, chunk_roi=None, chunk_size=No
 
     # 64 bits total length - 8 bits layer id length
     layer_offset = 64 - 8
-    x_offset = layer_offset - bit_per_chunk_dim
-    y_offset = x_offset - bit_per_chunk_dim
-    z_offset = y_offset - bit_per_chunk_dim
+    x_offset = layer_offset - bits_per_chunk_dim
+    y_offset = x_offset - bits_per_chunk_dim
+    z_offset = y_offset - bits_per_chunk_dim
     
     # Return np.uint64 in graphene format (with XYZ)
     return np.uint64(layer_id << layer_offset | 

@@ -3,8 +3,7 @@
   "cloudpath": "gs://BUCKET_CLOUD",
   "db_host": "DB_URI",
   "db_name": "DB_NAME",
-  "chunk_voxel_size": [],
+  "chunk_voxel_size": [0,0,0],
   "cloudvolume_provenance": "DESCRIPTION CLOUDVOLUME",
-  "num_workers": ,
-  "force_upload": true
+  "num_workers": 0
 }

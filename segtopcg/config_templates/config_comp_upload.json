@@ -1,14 +1,11 @@
 {
   "fragments_file": "PATH_TO_SUPERVOXELS",
+  "edges_dir_local": "PATH_TO_LOCAL_EDGES_DIR",
   "cloudpath": "gs://BUCKET_CLOUD",
   "db_host": "DB_URI",
   "db_name": "DB_NAME",
-  "chunk_voxel_size": [],
-  "edges_threshold": ,
-  "num_workers": ,
-  "isolate_chunks_mode": "all",
-  "overwrite": false, 
-  "start_over": false,
-  "edges_dir_cloud": "edges",
-  "components_dir_cloud": "components"
+  "chunk_voxel_size": [0,0,0],
+  "edges_threshold": 0,
+  "num_workers": 0,
+  "isolate_chunks_mode": "all"
 }

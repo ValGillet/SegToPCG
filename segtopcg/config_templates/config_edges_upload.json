@@ -3,8 +3,8 @@
   "cloudpath": "gs://BUCKET_CLOUD",
   "db_host": "DB_URI",
   "db_name": "DB_NAME",
-  "chunk_voxel_size": [],
+  "chunk_voxel_size": [0,0,0],
   "edges_collection": "EDGES_COLLECTION_NAME",
   "edges_dir_local": "PATH_TO_LOCAL_EDGES_DIR",
-  "num_workers": 
+  "num_workers": 0
 }

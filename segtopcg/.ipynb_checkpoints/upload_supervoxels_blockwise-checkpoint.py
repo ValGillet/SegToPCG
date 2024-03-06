@@ -1,9 +1,7 @@
-from utils.ids_to_pcg import *
+from .utils.utils_supervoxel import *
 
-from cloudvolume import CloudVolume
-from cloudfiles import CloudFiles
 import daisy
-from funlib.segment.arrays.replace_values import replace_values
+import funlib.persistence as pers
 import json
 import logging
 import numpy as np
@@ -11,10 +9,17 @@ import pymongo
 import sys
 import time
 import traceback
+
+from cloudvolume import CloudVolume
+from cloudfiles import CloudFiles
 from datetime import date
+from funlib.segment.arrays.replace_values import replace_values
 
 logging.basicConfig(level=logging.INFO)
 
+# Hard coded because common to all datasets
+# Layer ID = 1 is first layer containing supervoxel IDs
+# Other layers are computed during ingest
 layer_id = 1
 layer_bits = 8
 
@@ -26,7 +31,9 @@ def supervoxel_to_graphene_blockwise(fragments_file,
                                      cloudvolume_provenance,
                                      num_workers,
                                      overwrite = False,
-                                     start_over = False):
+                                     start_over = False,
+                                     supervoxels_dir = 'fragments'
+                                    ):
 
     '''
     Start blockwise translation of supervoxel IDs into graphene format, and upload to Google cloud bucket (by default in "fragments" dir).
@@ -51,7 +58,7 @@ def supervoxel_to_graphene_blockwise(fragments_file,
         
         chunk_voxel_size ([3] list of ``int``):
         
-            Size of a chunk in number of voxels.
+            Size of a chunk in number of voxels (XYZ).
             
         cloudvolume_provenance (``str``):
             
@@ -70,17 +77,24 @@ def supervoxel_to_graphene_blockwise(fragments_file,
         
             True: progress will be wiped to start from scratch.
             False: will start from where we left off and skip processed edges, based on progress db.
+
+        supervoxels_dir (``str``):
+        
+            Name of the supervoxels directory in the cloud bucket. "fragments" by default.
     '''
     
-    if len(db_host) == 0:
-        db_host = None
-
-    fragments = daisy.open_ds(fragments_file, 'frags')
+    # Variables
+    fragments = pers.open_ds(fragments_file, 'frags')
     chunk_size = daisy.Coordinate(chunk_voxel_size) * fragments.voxel_size
-    bit_per_chunk_dim = get_nbit_chunk_coord(fragments, chunk_size)
-
+    bits_per_chunk_dim = get_nbit_chunk_coord(fragments, chunk_size)
+    
+    db_host = None if len(db_host) == 0 else db_host
     client = pymongo.MongoClient(db_host)
     db = client[db_name]
+    ids_to_graphene = db['ids_to_graphene']
+    
+    cf = CloudFiles(cloudpath)
+    supervoxels_dir = '/'.join(cf.cloudpath, supervoxels_dir)
     
     if 'blocks_translated' not in db.list_collection_names():
         blocks_translated = db['blocks_translated']
@@ -88,31 +102,23 @@ def supervoxel_to_graphene_blockwise(fragments_file,
                   [('block_id', pymongo.ASCENDING)],
                   name='block_id')
     elif start_over:
-        db.drop_collection('blocks_edges_in_PCG')
-        blocks_in_PCG = db['blocks_edges_in_PCG']
-        blocks_in_PCG.create_index(
-                                   [('block_id', pymongo.ASCENDING)],
-                                   name = 'block_id')
+        db.drop_collection('blocks_translated')
+        blocks_translated = db['blocks_translated']
+        blocks_translated.create_index(
+                                       [('block_id', pymongo.ASCENDING)],
+                                       name = 'block_id')
     else:
         blocks_translated = db['blocks_translated']
     
-    ids_to_graphene = db['ids_to_graphene']
-
-
-    cf = CloudFiles(cloudpath)
-    
     # Check if volume already exists at destination
-    if cf.isdir('fragments'):
+    if cf.isdir(supervoxels_dir):
         if overwrite:
             print(f'Fragments already exist at path {cloudpath}')
             print('Overlapping fragments volume will be overwritten')
         else:
-            print(f'Fragments already exist at path {cloudpath}')
-            print('Aborting...')
-            sys.exit()
+            raise RuntimeError(f'Fragments already exist at path {cloudpath}')
 
     # Initiate CloudVolume object
-    cloudpath += '/fragments'
     try:
         logging.info('Volume will be uploaded to the cloud')
         logging.info('Initializing CloudVolume...')
@@ -127,9 +133,9 @@ def supervoxel_to_graphene_blockwise(fragments_file,
                                voxel_offset = (fragments.roi.get_begin()//fragments.voxel_size)[::-1], # x,y,z offset in voxel
                                mesh = 'mesh',
                                chunk_size = destination_chunk_size,
-                               volume_size = fragments.shape[::-1])
+                               volume_size = fragments.shape[::-1]) # x,y,z shape in voxel
 
-        vol = CloudVolume(cloudpath, 
+        vol = CloudVolume(supervoxels_dir, 
                           info = info, 
                           fill_missing = False,
                           parallel = False,
@@ -138,7 +144,7 @@ def supervoxel_to_graphene_blockwise(fragments_file,
         vol.provenance.description = cloudvolume_provenance
         vol.commit_info()
         vol.commit_provenance()
-        logging.info(f'CloudVolume inialized at path: {cloudpath}')
+        logging.info(f'CloudVolume inialized at path: {supervoxels_dir}')
 
     except Exception as e:
         print(f'Error: {e}')
@@ -154,7 +160,7 @@ def supervoxel_to_graphene_blockwise(fragments_file,
                         write_roi = daisy.Roi((0,0,0), chunk_size),
                         process_function = lambda: upload_supervoxels_worker(
                                                                         fragments_file,
-                                                                        bit_per_chunk_dim,
+                                                                        bits_per_chunk_dim,
                                                                         chunk_size,
                                                                         vol,
                                                                         db_host,
@@ -170,25 +176,26 @@ def supervoxel_to_graphene_blockwise(fragments_file,
 
     info_ingest = db['info_ingest']
     doc_ingest = {
-                  'task': 'nodes_translation',
+                  'task': 'supervoxels',
+                  'cloudpath': supervoxels_dir,
                   'frag_file': fragments_file,
-                  'cloudpath': cloudpath,
-                  'chunk_size': list(chunk_size),
-                  'spatial_bits': bit_per_chunk_dim, 
+                  'chunk_voxel_size': list(chunk_voxel_size),
+                  'spatial_bits': bits_per_chunk_dim, 
                   'layer_id_bits': 8,
                   'date': date.today().strftime('%d%m%Y')
                  }
     info_ingest.insert_one(doc_ingest)
+    logging.info('Uploading supervoxels complete!')
 
 
 def upload_supervoxels_worker(fragments_file,
-                              bit_per_chunk_dim,
+                              bits_per_chunk_dim,
                               chunk_size,
                               vol,
                               db_host,
                               db_name,
                               num_workers
-                              ):
+                             ):
 
     '''
     Start blockwise translation of supervoxel IDs into graphene format, and upload to Google cloud bucket (by default in "fragments" dir).
@@ -200,7 +207,7 @@ def upload_supervoxels_worker(fragments_file,
         
             Path to the fragments zarr container. By default, the dataset is expected to be named "frags".
     
-        bit_per_chunk_dim (``int``):
+        bits_per_chunk_dim (``int``):
         
             Number of bits used to encode chunk ID. 
             
@@ -225,7 +232,7 @@ def upload_supervoxels_worker(fragments_file,
             Number of workers to distribute the tasks to. Used by the worker for documenting the task.
     '''
     
-    fragments = daisy.open_ds(fragments_file, 'frags')
+    fragments = pers.open_ds(fragments_file, 'frags')
     
     # Initiate MongoDB client and collections
     client = pymongo.MongoClient(db_host)
@@ -245,10 +252,10 @@ def upload_supervoxels_worker(fragments_file,
         
         # Compute new supervoxel IDs
         chunk_coord = get_chunk_coord(fragments, block.read_roi, chunk_size) # z,y,x
-        chunk_id = get_chunkId(bit_per_chunk_dim, 
+        chunk_id = get_chunkId(bits_per_chunk_dim, 
                                block.read_roi, 
                                chunk_size, 
-                               chunk_coord = chunk_coord) # Should be zyx chunk coord
+                               chunk_coord = chunk_coord) # zyx chunk coord
         frag_id, seg_id = get_segId(fragments, 
                                     block.read_roi, 
                                     db_name, 
@@ -270,8 +277,8 @@ def upload_supervoxels_worker(fragments_file,
         
         # Upload data
         try:
-            z1,y1,x1 = block.read_roi.get_begin()//fragments.voxel_size
-            z2,y2,x2 = block.read_roi.get_end()//fragments.voxel_size
+            z1,y1,x1 = block.read_roi.get_begin()//fragments.voxel_size + daisy.Coordinate([0,13078,0])
+            z2,y2,x2 = block.read_roi.get_end()//fragments.voxel_size + daisy.Coordinate([0,13078,0])
             vol[x1:x2, y1:y2, z1:z2] = np.transpose(graphene_data, (2,1,0))
         except Exception as e:
             print(f'Error: {e}')
@@ -319,11 +326,5 @@ if __name__ == '__main__':
     with open(config_file, 'r') as f:
         config = json.load(f)
 
-    start = time.time()
-    
     supervoxel_to_graphene_blockwise(**config)
 
-    end = time.time()
-
-    seconds = end - start
-    logging.info(f'Total time to translate fragment IDs: {seconds}')

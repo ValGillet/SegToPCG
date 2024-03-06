@@ -6,18 +6,6 @@ from pychunkedgraph.graph.edges import EDGE_TYPES
 from pychunkedgraph.graph.edges.utils import concatenate_chunk_edges
 from pychunkedgraph.io.edges import *
 
-def _decompress_edges(content: bytes):
-
-    zdc = zstd.ZstdDecompressor()
-    chunk_edges = ChunkEdgesMsg()
-    chunk_edges.ParseFromString(zdc.decompressobj().decompress(content))
-
-    # in, between and cross
-    edges_dict = {}
-    edges_dict[EDGE_TYPES.in_chunk] = deserialize(chunk_edges.in_chunk)
-    edges_dict[EDGE_TYPES.between_chunk] = deserialize(chunk_edges.between_chunk)
-    edges_dict[EDGE_TYPES.cross_chunk] = deserialize(chunk_edges.cross_chunk)
-    return edges_dict
 
 
 def write_chunk_edges_local(edges_dir, 
@@ -27,7 +15,7 @@ def write_chunk_edges_local(edges_dir,
                             ):
 
     
-    """Write edges to local directory."""
+    """Write edges to local directory. Modified from PyChunkedGraph."""
     
     chunk_edges = ChunkEdgesMsg()
     chunk_edges.in_chunk.CopyFrom(serialize(edges_d[EDGE_TYPES.in_chunk]))
@@ -47,7 +35,7 @@ def write_chunk_edges_local(edges_dir,
 def read_chunk_edges_local(edges_dir, 
                            chunks_coordinates
                            ):
-    """Read edges from local directory."""
+    """Read edges from local directory. Modified from PyChunkedGraph."""
     
     fnames = []
     for chunk_coords in chunks_coordinates:
@@ -61,10 +49,9 @@ def read_chunk_edges_local(edges_dir,
             with open(filename, 'rb') as f:
                 content = f.read() 
             
-                if content:
-                    edges.append(_decompress_edges(content))
+                edges.append(_parse_edges([content])[0])
         except:
-            edges.append(_decompress_edges(b''))
+            edges.append(_parse_edges([b''])[0])
 
     return concatenate_chunk_edges(edges)
 

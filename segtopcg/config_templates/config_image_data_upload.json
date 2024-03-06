@@ -4,6 +4,5 @@
   "db_host": "MONGODB_URI",
   "db_name": "DB_NAME",
   "cloudvolume_provenance": "DESCRIPTION CLOUDVOLUME",
-  "num_workers": ,
-  "force_upload": true
+  "num_workers": 0
 }
