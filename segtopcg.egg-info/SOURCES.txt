@@ -11,7 +11,6 @@ segtopcg.egg-info/dependency_links.txt
 segtopcg.egg-info/requires.txt
 segtopcg.egg-info/top_level.txt
 segtopcg/utils/__init__.py
-segtopcg/utils/ids_to_pcg.py
+segtopcg/utils/utils_components.py
 segtopcg/utils/utils_local.py
-segtopcg/workers/__init__.py
-segtopcg/workers/components_to_graphene_local.py
+segtopcg/utils/utils_supervoxel.py
