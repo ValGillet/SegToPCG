@@ -1,5 +1,5 @@
-from .utils.utils_supervoxel import get_nbit_chunk_coord, get_chunk_coord, get_segId, get_chunkId
-from .utils.utils_local import write_chunk_edges_local
+from segtopcg.utils.utils_supervoxel import get_nbit_chunk_coord, get_chunk_coord, get_segId, get_chunkId
+from segtopcg.utils.utils_local import write_chunk_edges_local
 
 import daisy
 import funlib.persistence as pers

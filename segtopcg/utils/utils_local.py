@@ -5,6 +5,7 @@ from pychunkedgraph.io.protobuf.chunkEdges_pb2 import ChunkEdgesMsg
 from pychunkedgraph.graph.edges import EDGE_TYPES
 from pychunkedgraph.graph.edges.utils import concatenate_chunk_edges
 from pychunkedgraph.io.edges import *
+from pychunkedgraph.io.edges import _parse_edges
 
 
 
