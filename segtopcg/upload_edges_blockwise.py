@@ -2,7 +2,6 @@ from segtopcg.utils.utils_supervoxel import get_nbit_chunk_coord, get_chunk_coor
 from segtopcg.utils.utils_local import write_chunk_edges_local
 
 import daisy
-import funlib.persistence as pers
 import json
 import logging
 import numpy as np
@@ -125,7 +124,7 @@ def edges_to_graphene_blockwise(fragments_file,
         else:
             raise RuntimeError(f'Edges already exist at path {cloudpath}')
             
-    fragments = pers.open_ds(fragments_file, 'frags')
+    fragments = daisy.open_ds(fragments_file, 'frags')
     chunk_size = daisy.Coordinate(chunk_voxel_size)[::-1] * fragments.voxel_size
     total_roi = fragments.roi
     voxel_size = fragments.voxel_size

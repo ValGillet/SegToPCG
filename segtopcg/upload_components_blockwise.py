@@ -3,7 +3,6 @@ from segtopcg.utils.utils_components import *
 
 import traceback
 import daisy
-import funlib.persistence as pers
 import json
 import logging
 import numpy as np
@@ -106,7 +105,7 @@ def upload_components_chunkwise(
 
     # Variables
     bucket = CloudFiles(cloudpath[:cloudpath.rfind('/')])
-    fragments = pers.open_ds(fragments_file, 'frags')
+    fragments = daisy.open_ds(fragments_file, 'frags')
     chunk_size = fragments.voxel_size*daisy.Coordinate(chunk_voxel_size[::-1])
     cf = CloudFiles(cloudpath)
     edges_dir_cloud =  '/'.join([cloudpath, edges_dir_cloud])

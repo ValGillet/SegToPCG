@@ -1,4 +1,3 @@
-import funlib.persistence as pers
 import daisy
 import numpy as np    
 
@@ -100,7 +99,7 @@ def get_chunk_list(fragments,
             
     '''
 
-    ds = pers.open_ds(fragments, 'frags')
+    ds = daisy.open_ds(fragments, 'frags')
     chunk_shape = daisy.Coordinate(chunk_size) / daisy.Coordinate(ds.voxel_size)
     n_chunks = np.ceil(np.array(ds.shape)/np.array(chunk_shape)).astype(int)
 

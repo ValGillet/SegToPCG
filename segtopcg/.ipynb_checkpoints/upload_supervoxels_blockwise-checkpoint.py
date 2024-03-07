@@ -1,7 +1,6 @@
-from .utils.utils_supervoxel import *
+from segtopcg.utils.utils_supervoxel import *
 
 import daisy
-import funlib.persistence as pers
 import json
 import logging
 import numpy as np
@@ -84,7 +83,7 @@ def supervoxel_to_graphene_blockwise(fragments_file,
     '''
     
     # Variables
-    fragments = pers.open_ds(fragments_file, 'frags')
+    fragments = daisy.open_ds(fragments_file, 'frags')
     chunk_size = daisy.Coordinate(chunk_voxel_size) * fragments.voxel_size
     bits_per_chunk_dim = get_nbit_chunk_coord(fragments, chunk_size)
     
@@ -232,7 +231,7 @@ def upload_supervoxels_worker(fragments_file,
             Number of workers to distribute the tasks to. Used by the worker for documenting the task.
     '''
     
-    fragments = pers.open_ds(fragments_file, 'frags')
+    fragments = daisy.open_ds(fragments_file, 'frags')
     
     # Initiate MongoDB client and collections
     client = pymongo.MongoClient(db_host)

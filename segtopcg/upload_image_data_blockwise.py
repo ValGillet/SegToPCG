@@ -1,5 +1,4 @@
 import daisy
-import funlib.persistence as pers
 import json
 import logging
 import numpy as np
@@ -69,7 +68,7 @@ def upload_image_data_blockwise(image_data_file,
             Name of the image data directory in the cloud bucket. "image_data" by default.
     '''
     
-    image_data = pers.open_ds(image_data_file, 'raw')
+    image_data = daisy.open_ds(image_data_file, 'raw')
     client = pymongo.MongoClient(db_host)
     db = client[db_name]
     
@@ -185,7 +184,7 @@ def upload_supervoxels_worker(image_data_file,
             Number of workers to distribute the tasks to. Used by the worker for documenting the task.
     '''
     
-    image_data = pers.open_ds(image_data_file, 'raw')
+    image_data = daisy.open_ds(image_data_file, 'raw')
     
     # Initiate MongoDB client and collections
     client = pymongo.MongoClient(db_host)
