@@ -5,5 +5,3 @@ Summary: Translate segmentation obtained from funkelab method to PyChunkedGraph 
 Author: Valentin Gillet
 Author-email: valentin.gillet@biol.lu.se
 Keywords: python,segmentation
-Requires-Dist: numpy
-Requires-Dist: daisy

@@ -1,3 +1,4 @@
 /segtopcg/config
 *.ipynb_checkpoints
 *egg-info
+/segtopcg/config_templates/generate_config.py
