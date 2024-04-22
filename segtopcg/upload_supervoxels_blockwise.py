@@ -93,7 +93,7 @@ def supervoxel_to_graphene_blockwise(fragments_file,
     ids_to_graphene = db['ids_to_graphene']
     
     cf = CloudFiles(cloudpath)
-    supervoxels_dir = '/'.join(cf.cloudpath, supervoxels_dir)
+    supervoxels_dir = '/'.join([cf.cloudpath, supervoxels_dir])
     
     if 'blocks_translated' not in db.list_collection_names():
         blocks_translated = db['blocks_translated']
@@ -102,6 +102,7 @@ def supervoxel_to_graphene_blockwise(fragments_file,
                   name='block_id')
     elif start_over:
         db.drop_collection('blocks_translated')
+        db.drop_collection('ids_to_graphene')
         blocks_translated = db['blocks_translated']
         blocks_translated.create_index(
                                        [('block_id', pymongo.ASCENDING)],
@@ -276,8 +277,8 @@ def upload_supervoxels_worker(fragments_file,
         
         # Upload data
         try:
-            z1,y1,x1 = block.read_roi.get_begin()//fragments.voxel_size + daisy.Coordinate([0,13078,0])
-            z2,y2,x2 = block.read_roi.get_end()//fragments.voxel_size + daisy.Coordinate([0,13078,0])
+            z1,y1,x1 = block.read_roi.get_begin()//fragments.voxel_size 
+            z2,y2,x2 = block.read_roi.get_end()//fragments.voxel_size
             vol[x1:x2, y1:y2, z1:z2] = np.transpose(graphene_data, (2,1,0))
         except Exception as e:
             print(f'Error: {e}')

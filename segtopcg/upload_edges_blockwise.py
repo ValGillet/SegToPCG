@@ -114,7 +114,7 @@ def edges_to_graphene_blockwise(fragments_file,
             os.mkdir(edges_dir_local)
 
     cf = CloudFiles(cloudpath)
-    edges_dir_cloud = '/'.join(cf.cloudpath, edges_dir_cloud)
+    edges_dir_cloud = '/'.join([cf.cloudpath, edges_dir_cloud])
     
     # Check if edges already exist at destination
     if cf.isdir(edges_dir_cloud):
@@ -125,7 +125,7 @@ def edges_to_graphene_blockwise(fragments_file,
             raise RuntimeError(f'Edges already exist at path {cloudpath}')
             
     fragments = daisy.open_ds(fragments_file, 'frags')
-    chunk_size = daisy.Coordinate(chunk_voxel_size)[::-1] * fragments.voxel_size
+    chunk_size = daisy.Coordinate(chunk_voxel_size[::-1]) * fragments.voxel_size
     total_roi = fragments.roi
     voxel_size = fragments.voxel_size
 
