@@ -65,7 +65,7 @@ def upload_components_chunkwise(
         
         chunk_voxel_size ([3] list of ``int``):
         
-            Size of a chunk in number of voxels (XYZ).
+            Size of a chunk in number of voxels (ZYX).
             
         edges_threshold (``float``):
         
@@ -106,7 +106,7 @@ def upload_components_chunkwise(
     # Variables
     bucket = CloudFiles(cloudpath[:cloudpath.rfind('/')])
     fragments = daisy.open_ds(fragments_file, 'frags')
-    chunk_size = fragments.voxel_size*daisy.Coordinate(chunk_voxel_size[::-1])
+    chunk_size = fragments.voxel_size*daisy.Coordinate(chunk_voxel_size)
     cf = CloudFiles(cloudpath)
     edges_dir_cloud =  '/'.join([cloudpath, edges_dir_cloud])
     components_dir = '/'.join([cloudpath, components_dir_cloud])
@@ -233,7 +233,7 @@ def connected_components_to_cloud_worker(chunk_coord,
     client = pymongo.MongoClient(db_host)
     db = client[db_name]
     info = db['components_info']
-    bits_per_chunk_dim = db['info_ingest'].find_one({'task': 'nodes_translation'}, {'spatial_bits':1})['spatial_bits']
+    bits_per_chunk_dim = db['info_ingest'].find_one({'task': 'supervoxels'}, {'spatial_bits':1})['spatial_bits']
     main_chunk = np.array(chunk_coord, dtype=int) # xyz
     
     # Check if chunk was processed

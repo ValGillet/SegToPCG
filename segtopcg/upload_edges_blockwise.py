@@ -125,7 +125,7 @@ def edges_to_graphene_blockwise(fragments_file,
             raise RuntimeError(f'Edges already exist at path {cloudpath}')
             
     fragments = daisy.open_ds(fragments_file, 'frags')
-    chunk_size = daisy.Coordinate(chunk_voxel_size[::-1]) * fragments.voxel_size
+    chunk_size = daisy.Coordinate(chunk_voxel_size) * fragments.voxel_size
     total_roi = fragments.roi
     voxel_size = fragments.voxel_size
 
@@ -310,7 +310,7 @@ def translate_edges_worker(db_host,
                                                              dic['graphene_ids'])
                                                               )})
 
-        assert main_chunk_id == dic['graphene_chunk_id']
+        assert main_chunk_id == dic['graphene_chunk_id'], print(main_chunk_id, dic['graphene_chunk_id'])
         
         for d in [-1, 1]:
             for dim in range(3):

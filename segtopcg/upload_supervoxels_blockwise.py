@@ -57,7 +57,7 @@ def supervoxel_to_graphene_blockwise(fragments_file,
         
         chunk_voxel_size ([3] list of ``int``):
         
-            Size of a chunk in number of voxels (XYZ).
+            Size of a chunk in number of voxels (ZYX).
             
         cloudvolume_provenance (``str``):
             
