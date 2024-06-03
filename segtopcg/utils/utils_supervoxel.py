@@ -43,33 +43,19 @@ def get_segId(fragments,
             
     '''
 
-    rag_provider = daisy.persistence.MongoDbGraphProvider(
-                                db_name,
-                                db_host,
-                                mode = 'r',
-                                directed = False,
-                                edges_collection = 'edges_hist_quant_50',
-                                position_attribute = ['center_z','center_y','center_x'])
-
     # Get data in chunk, transpose zyx to xyz
     data = fragments.intersect(chunk_roi).to_ndarray()
 
     frag_ids = np.unique(data).astype(np.uint64)
-    
-    rag_nodes = np.array([n['id'] for n in rag_provider.read_nodes(chunk_roi)], dtype = np.uint64)
-
     frag_ids.sort()
 
     if np.all(frag_ids == 0):
         return np.array([0], dtype = np.uint64), np.array([0], dtype = np.uint64)
 
     if frag_ids[0] == 0:
-        assert np.all(np.isin(frag_ids[1:], rag_nodes)), frag_ids[np.logical_not(np.isin(frag_ids, rag_nodes))]
         local_ids = np.linspace(0, frag_ids.shape[0]-1, frag_ids.shape[0], dtype = np.uint64)
-
     else:
         local_ids = np.linspace(1, frag_ids.shape[0], frag_ids.shape[0], dtype = np.uint64)
-        assert np.all(np.isin(frag_ids, rag_nodes)), chunk_roi
     
     if output_data:
         return replace_values(data, frag_ids, local_ids, inplace = False)
@@ -189,10 +175,15 @@ def get_chunkId(bits_per_chunk_dim, fragments=None, chunk_roi=None, chunk_size=N
     
     layer_id = 1
     
+    
     if chunk_coord is None:
         chunk_coord = get_chunk_coord(fragments, chunk_roi, chunk_size) # z,y,x coordinates
 
-    z, y, x = chunk_coord
+    chunk_coord = np.array(chunk_coord, dtype=int)
+    if chunk_coord.ndim > 1:
+        z, y, x = chunk_coord.T
+    else:
+        z, y, x = chunk_coord
 
     # 64 bits total length - 8 bits layer id length
     layer_offset = 64 - 8
