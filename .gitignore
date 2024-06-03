@@ -3,3 +3,4 @@
 *egg-info
 /segtopcg/config_templates/generate_config.py
 /segtopcg/temp
+/segtopcg/daisy_logs
