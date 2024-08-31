@@ -10,6 +10,8 @@ import traceback
 from cloudvolume import CloudVolume
 from cloudfiles import CloudFiles
 from datetime import date
+from funlib.geometry import Coordinate, Roi
+from funlib.persistence import open_ds
 
 logging.basicConfig(level=logging.INFO)
 
@@ -68,7 +70,7 @@ def upload_image_data_blockwise(image_data_file,
             Name of the image data directory in the cloud bucket. "image_data" by default.
     '''
     
-    image_data = daisy.open_ds(image_data_file, 'raw')
+    image_data = open_ds(image_data_file, 'raw')
     client = pymongo.MongoClient(db_host)
     db = client[db_name]
     
@@ -121,23 +123,25 @@ def upload_image_data_blockwise(image_data_file,
     logging.info(f'Volume bounds: {vol.bounds}') 
     logging.info(f'Starting upload...') 
     
-    chunk_size = daisy.Coordinate(destination_chunk_voxel_size[::-1])*daisy.Coordinate([4,4,2])*image_data.voxel_size
+    chunk_size = Coordinate(destination_chunk_voxel_size[::-1])*Coordinate([4,4,2])*image_data.voxel_size
     # Start blockwise translation and upload
-    daisy.run_blockwise(total_roi = image_data.roi,
-                        read_roi = daisy.Roi((0,0,0), chunk_size),
-                        write_roi = daisy.Roi((0,0,0), chunk_size),
-                        process_function = lambda: upload_supervoxels_worker(image_data_file,
-                                                                             vol,
-                                                                             db_host,
-                                                                             db_name,
-                                                                             num_workers),
-                        check_function = lambda b: check_block(
-                                                        blocks_image_uploaded,
-                                                        b),
-                        num_workers = num_workers,
-                        read_write_conflict = False,
-                        fit = 'shrink'
-                       )
+    task = daisy.Task(
+                task_id = f'upload_image_data_{db_name}',
+                total_roi = image_data.roi,
+                read_roi = Roi((0,0,0), chunk_size),
+                write_roi = Roi((0,0,0), chunk_size),
+                process_function = lambda: upload_supervoxels_worker(image_data_file,
+                                                                     vol,
+                                                                     db_host,
+                                                                     db_name,
+                                                                     num_workers),
+                check_function = lambda b: check_block(blocks_image_uploaded,
+                                                       b),
+                num_workers = num_workers,
+                read_write_conflict = False,
+                fit = 'shrink'
+                     )
+    daisy.run_blockwise([task])
 
     info_ingest = db['info_ingest']
     doc_ingest = {
@@ -184,7 +188,7 @@ def upload_supervoxels_worker(image_data_file,
             Number of workers to distribute the tasks to. Used by the worker for documenting the task.
     '''
     
-    image_data = daisy.open_ds(image_data_file, 'raw')
+    image_data = open_ds(image_data_file, 'raw')
     
     # Initiate MongoDB client and collections
     client = pymongo.MongoClient(db_host)
@@ -194,40 +198,39 @@ def upload_supervoxels_worker(image_data_file,
     client = daisy.Client()
     
     while True:
-        block = client.acquire_block()
+        
+        with client.acquire_block() as block:
 
-        if block is None:
-            break
-        
-        start = time.time()    
-        
-        data = image_data.to_ndarray(block.read_roi)
-        
-        # Upload data
-        try:
-            z1,y1,x1 = block.read_roi.get_begin()//image_data.voxel_size
-            z2,y2,x2 = block.read_roi.get_end()//image_data.voxel_size
-            vol[x1:x2, y1:y2, z1:z2] = np.transpose(data, (2,1,0))
-        except Exception as e:
-            print(f'Error: {e}')
-            traceback.print_exc()
-
-        document = {
-                'num_cpus': num_workers,
-                'block_id': block.block_id,
-                'read_roi': (block.read_roi.get_begin(),
-                             block.read_roi.get_shape()
-                            ),
-                'write_roi': (block.write_roi.get_begin(),
-                              block.write_roi.get_shape()
-                             ),
-                'start': start,
-                'duration': time.time() - start
-                   }
-        
-        blocks_image_uploaded.insert_one(document)
-
-        client.release_block(block, ret=0)
+            if block is None:
+                break
+            
+            start = time.time()    
+            
+            data = image_data.to_ndarray(block.read_roi)
+            
+            # Upload data
+            try:
+                z1,y1,x1 = block.read_roi.get_begin()//image_data.voxel_size
+                z2,y2,x2 = block.read_roi.get_end()//image_data.voxel_size
+                vol[x1:x2, y1:y2, z1:z2] = np.transpose(data, (2,1,0))
+            except Exception as e:
+                print(f'Error: {e}')
+                traceback.print_exc()
+    
+            document = {
+                    'num_cpus': num_workers,
+                    'block_id': block.block_id,
+                    'read_roi': (block.read_roi.get_begin(),
+                                 block.read_roi.get_shape()
+                                ),
+                    'write_roi': (block.write_roi.get_begin(),
+                                  block.write_roi.get_shape()
+                                 ),
+                    'start': start,
+                    'duration': time.time() - start
+                       }
+            
+            blocks_image_uploaded.insert_one(document)
 
 
 def check_block(blocks_image_uploaded, block):
