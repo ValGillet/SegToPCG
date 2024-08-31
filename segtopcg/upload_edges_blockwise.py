@@ -260,6 +260,7 @@ def translate_edges_worker(db_host,
             
     '''
 
+    print('start')
     client = pymongo.MongoClient(db_host)
     db = client[db_name]
 
@@ -279,6 +280,8 @@ def translate_edges_worker(db_host,
                 break
 
             start = time.time()
+
+            print(block)
             roi = block.read_roi  
 
             chunk_coord = get_chunk_coord(fragments = None,
@@ -313,11 +316,11 @@ def translate_edges_worker(db_host,
                 # Query size might exceed mongodb limit, so we split it
                 query = []
                 for chunk in chunk_ids:
-                    query += list(trs_coll.find({'graphene_chunk_id':{'$in':chunk}},
-                                                {'_id':0,
-                                                 'graphene_chunk_id':1, 
-                                                 'initial_ids':1, 
-                                                 'graphene_ids':1}))
+                    query += list(trs_coll.find({'graphene_chunk_id':{'$in': chunk}},
+                                       {'_id':0,
+                                        'graphene_chunk_id':1, 
+                                        'initial_ids':1, 
+                                        'graphene_ids':1}))
 
             nodes_info = []
             for dic in query:
@@ -375,7 +378,7 @@ def translate_edges_worker(db_host,
                                                          'u': 1,
                                                          'v': 1,
                                                          'merge_score': 1}))
-                
+
             # Edges in chunk
             # in_chunk: edges between supervoxels within a chunk
             in_edges_df = pd.DataFrame(query_in, columns=['u', 'v', 'merge_score'])
@@ -434,8 +437,7 @@ def translate_edges_worker(db_host,
                             edges_proto_d, 
                             compression_level = 22)
 
-            if write_local:      
-                logging.info('WRITE')
+            if write_local:          
                 write_chunk_edges_local(edges_dir_local, 
                                         chunk_coord[::-1], # x,y,z
                                         edges_proto_d, 
@@ -445,7 +447,7 @@ def translate_edges_worker(db_host,
             document = {
                    'num_cpus': num_workers,
                    'block_id': block.block_id,
-                   'graphene_chunk_coord': list(map(int, chunk_coord[::-1])),
+                   'graphene_chunk_coord': chunk_coord[::-1],
                    'read_roi': (block.read_roi.get_begin(),
                                 block.read_roi.get_shape()),
                    'write_roi': (block.write_roi.get_begin(),

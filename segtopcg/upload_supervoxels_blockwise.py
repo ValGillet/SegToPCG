@@ -31,8 +31,7 @@ def supervoxel_to_graphene_blockwise(fragments_file,
                                      num_workers,
                                      overwrite = False,
                                      start_over = False,
-                                     supervoxels_dir = 'fragments',
-                                     edges_collection = 'edges_hist_quant_25'
+                                     supervoxels_dir = 'fragments'
                                     ):
 
     '''
@@ -240,7 +239,6 @@ def upload_supervoxels_worker(fragments_file,
     db = client[db_name]
     blocks_translated = db['blocks_translated']
     ids_to_graphene_collection = db['ids_to_graphene']
-    edges_collection = db[edges_collection]
 
     client = daisy.Client()
     
@@ -252,28 +250,30 @@ def upload_supervoxels_worker(fragments_file,
         
         start = time.time()
         
-        data = fragments.intersect(block.read_roi)
-        data = data.to_ndarray()
-        
-        frag_ids = np.unique(data)
-        
         # Compute new supervoxel IDs
         chunk_coord = get_chunk_coord(fragments, block.read_roi, chunk_size) # z,y,x
         chunk_id = get_chunkId(bits_per_chunk_dim, 
                                block.read_roi, 
                                chunk_size, 
                                chunk_coord = chunk_coord) # zyx chunk coord
-        frag_ids, seg_ids = get_segId(frag_ids)
+        frag_id, seg_id = get_segId(fragments, 
+                                    block.read_roi, 
+                                    db_name, 
+                                    db_host, 
+                                    output_data = False)
 
         new_ids = []
-        for x in seg_ids:
+        for x in seg_id:
             if x == 0:
                 nid = np.uint64(0)
             else:
                 nid = chunk_id | np.uint64(x)
             new_ids.append(nid)
+
+        data = fragments.intersect(block.read_roi)
+        data = data.to_ndarray()
         
-        graphene_data = replace_values(data, frag_ids, new_ids, inplace = False)    
+        graphene_data = replace_values(data, frag_id, new_ids, inplace = False)    
         
         # Upload data
         try:

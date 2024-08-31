@@ -2,6 +2,7 @@ from segtopcg.utils.utils_supervoxel import get_nbit_chunk_coord, get_chunk_coor
 from segtopcg.utils.utils_components import *
 
 import traceback
+import daisy
 import json
 import logging
 import numpy as np
@@ -14,8 +15,7 @@ import time
 from cloudfiles import CloudFiles
 from collections import defaultdict
 from datetime import date
-from funlib.geometry import Coordinate
-from funlib.persistence import open_ds
+from funlib.segment.arrays.replace_values import replace_values
 from multiprocessing import Pool
 from pychunkedgraph.io.components import put_chunk_components
 
@@ -65,7 +65,7 @@ def upload_components_chunkwise(
         
         chunk_voxel_size ([3] list of ``int``):
         
-            Size of a chunk in number of voxels (ZYX).
+            Size of a chunk in number of voxels (XYZ).
             
         edges_threshold (``float``):
         
@@ -105,13 +105,13 @@ def upload_components_chunkwise(
 
     # Variables
     bucket = CloudFiles(cloudpath[:cloudpath.rfind('/')])
-    fragments = open_ds(fragments_file, 'frags')
-    chunk_size = fragments.voxel_size*Coordinate(chunk_voxel_size)
+    fragments = daisy.open_ds(fragments_file, 'frags')
+    chunk_size = fragments.voxel_size*daisy.Coordinate(chunk_voxel_size[::-1])
     cf = CloudFiles(cloudpath)
     edges_dir_cloud =  '/'.join([cloudpath, edges_dir_cloud])
     components_dir = '/'.join([cloudpath, components_dir_cloud])
     edges_dir_local = os.path.join(edges_dir_local, db_name)
-    
+    db_host = None if len(db_host) == 0 else db_host
     client = pymongo.MongoClient(db_host)
     db = client[db_name]
 
@@ -233,7 +233,7 @@ def connected_components_to_cloud_worker(chunk_coord,
     client = pymongo.MongoClient(db_host)
     db = client[db_name]
     info = db['components_info']
-    bits_per_chunk_dim = db['info_ingest'].find_one({'task': 'supervoxels'}, {'spatial_bits':1})['spatial_bits']
+    bits_per_chunk_dim = db['info_ingest'].find_one({'task': 'nodes_translation'}, {'spatial_bits':1})['spatial_bits']
     main_chunk = np.array(chunk_coord, dtype=int) # xyz
     
     # Check if chunk was processed
