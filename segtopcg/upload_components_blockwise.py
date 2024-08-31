@@ -2,7 +2,6 @@ from segtopcg.utils.utils_supervoxel import get_nbit_chunk_coord, get_chunk_coor
 from segtopcg.utils.utils_components import *
 
 import traceback
-import daisy
 import json
 import logging
 import numpy as np
@@ -15,7 +14,8 @@ import time
 from cloudfiles import CloudFiles
 from collections import defaultdict
 from datetime import date
-from funlib.segment.arrays.replace_values import replace_values
+from funlib.geometry import Coordinate
+from funlib.persistence import open_ds
 from multiprocessing import Pool
 from pychunkedgraph.io.components import put_chunk_components
 
@@ -105,13 +105,13 @@ def upload_components_chunkwise(
 
     # Variables
     bucket = CloudFiles(cloudpath[:cloudpath.rfind('/')])
-    fragments = daisy.open_ds(fragments_file, 'frags')
-    chunk_size = fragments.voxel_size*daisy.Coordinate(chunk_voxel_size)
+    fragments = open_ds(fragments_file, 'frags')
+    chunk_size = fragments.voxel_size*Coordinate(chunk_voxel_size)
     cf = CloudFiles(cloudpath)
     edges_dir_cloud =  '/'.join([cloudpath, edges_dir_cloud])
     components_dir = '/'.join([cloudpath, components_dir_cloud])
     edges_dir_local = os.path.join(edges_dir_local, db_name)
-    db_host = None if len(db_host) == 0 else db_host
+    
     client = pymongo.MongoClient(db_host)
     db = client[db_name]
 

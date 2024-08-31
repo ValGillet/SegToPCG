@@ -1,20 +1,25 @@
 import daisy
 import numpy as np    
 
+from funlib.persistence import open_ds
 from funlib.segment.arrays.replace_values import replace_values
 
 
-def get_segId(fragments, 
-              chunk_roi, 
+def get_segId(frag_ids,
               db_name, 
               db_host, 
-              output_data=False):
+              fragments=None,
+              chunk_roi=None):
 
     '''
     Provides segment IDs in graphene format, for a chunk based on the position of supervoxels.
     
     Args:
     
+        frag_ids (`class:numpy.ndarray`):
+
+            Array containing fragments/supervoxel data.
+            
         fragments (`class:daisy.Array`):
 
             Array containing fragments/supervoxel data.
@@ -22,19 +27,6 @@ def get_segId(fragments,
         chunk_roi (`class:daisy.Roi`):
             
             Region of interest covered by chunk. 
-            
-        db_name (``str``):
-        
-            MongoDB database containing nodes and edges of the dataset.
-            
-        db_host (``str``):
-        
-            URI to the MongoDB instance containing nodes and edges of the dataset.
-            
-        output_data (``bool``):
-        
-            True: return translated chunk
-            False: return IDs
            
     Return:
         
@@ -42,25 +34,21 @@ def get_segId(fragments,
         Array of translated IDs.
             
     '''
-
-    # Get data in chunk, transpose zyx to xyz
-    data = fragments.intersect(chunk_roi).to_ndarray()
-
-    frag_ids = np.unique(data).astype(np.uint64)
-    frag_ids.sort()
-
-    if np.all(frag_ids == 0):
-        return np.array([0], dtype = np.uint64), np.array([0], dtype = np.uint64)
-
-    if frag_ids[0] == 0:
-        local_ids = np.linspace(0, frag_ids.shape[0]-1, frag_ids.shape[0], dtype = np.uint64)
-    else:
-        local_ids = np.linspace(1, frag_ids.shape[0], frag_ids.shape[0], dtype = np.uint64)
     
-    if output_data:
-        return replace_values(data, frag_ids, local_ids, inplace = False)
-    else:
-        return frag_ids, local_ids
+    if frag_ids is None and fragments is not None:
+        # Get data in chunk, transpose zyx to xyz
+        data = fragments.intersect(chunk_roi).to_ndarray()
+        frag_ids = np.unique(data).astype(np.uint64)
+        
+    frag_ids = frag_ids[frag_ids>0]
+        
+    if len(frag_ids):
+        return np.array([0], dtype = np.uint64), np.array([0], dtype = np.uint64)
+    
+    frag_ids.sort()
+    local_ids = np.linspace(1, frag_ids.shape[0], frag_ids.shape[0], dtype = np.uint64)
+    
+    return frag_ids, local_ids
     
 
 def get_chunk_list(fragments, 
@@ -85,9 +73,9 @@ def get_chunk_list(fragments,
             
     '''
 
-    ds = daisy.open_ds(fragments, 'frags')
-    chunk_shape = daisy.Coordinate(chunk_size) / daisy.Coordinate(ds.voxel_size)
-    n_chunks = np.ceil(np.array(ds.shape)/np.array(chunk_shape)).astype(int)
+    ds = open_ds(fragments, 'frags')
+    chunk_shape = np.array(chunk_size) / np.array(ds.voxel_size)
+    n_chunks = np.ceil(np.array(ds.shape)/chunk_shape).astype(int)
 
     chunk_list = []
     chunk_groups = []
@@ -135,10 +123,7 @@ def get_chunk_coord(fragments, chunk_roi, chunk_size, total_roi = None):
     chunk_offset = chunk_roi.get_begin()
     chunk_rel_offset = chunk_offset - ds_offset
 
-    if not isinstance(chunk_size, daisy.Coordinate):
-        chunk_size = daisy.Coordinate(chunk_size)
-
-    return list(chunk_rel_offset//chunk_size) 
+    return list(np.array(chunk_rel_offset)//np.array(chunk_size))
 
 
 def get_chunkId(bits_per_chunk_dim, fragments=None, chunk_roi=None, chunk_size=None, chunk_coord=None):
@@ -221,10 +206,9 @@ def get_nbit_chunk_coord(fragments, chunk_size):
     '''
     
     # Computes how many chunks fit in each dimensions
-    chunk_shape = daisy.Coordinate(chunk_size) / daisy.Coordinate(fragments.voxel_size)
-    ds_shape = daisy.Coordinate(fragments.shape)
+    chunk_shape = np.array(chunk_size) / np.array(fragments.voxel_size)
     
-    div = np.array(ds_shape)/np.array(chunk_shape)  # daisy.Coordinate would round the number
+    div = np.array(fragments.shape)/np.array(chunk_shape)
     result = np.ceil(div)-1 # minus 1 because chunk_coord starts at 0
     
     # Return max number of chunks that can be represented

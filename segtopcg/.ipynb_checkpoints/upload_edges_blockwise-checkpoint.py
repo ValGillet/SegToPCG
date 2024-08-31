@@ -5,16 +5,16 @@ import daisy
 import json
 import logging
 import numpy as np
-import networkx as nx
 import os
+import pandas as pd
 import pymongo
 import sys
 import time
 
 from cloudfiles import CloudFiles
 from datetime import date
-from funlib.segment.arrays.replace_values import replace_values
-from multiprocessing import Pool
+from funlib.geometry import Roi, Coordinate
+from funlib.persistence import open_ds
 from pychunkedgraph.io.edges import put_chunk_edges, get_chunk_edges
 from pychunkedgraph.io.components import put_chunk_components
 from pychunkedgraph.graph.edges import Edges
@@ -105,16 +105,13 @@ def edges_to_graphene_blockwise(fragments_file,
         print('Aborting.')
         sys.exist()
 
-    if len(db_host) == 0:
-        db_host = None
-
     if write_local:
-        edges_dir_local = f'/mnt/hdd1/SRC/SegmentationPipeline/data/edges/{db_name}'
-        if not os.path.exists(edges_dir_local):
-            os.mkdir(edges_dir_local)
+        assert os.path.exists(edges_dir_local), 'Edges directory does not exist'
+        edges_dir_local = os.path.join(edges_dir_local, db_name)
+        os.makedirs(edges_dir_local, exist_ok=True)
 
     cf = CloudFiles(cloudpath)
-    edges_dir_cloud = '/'.join(cf.cloudpath, edges_dir_cloud)
+    edges_dir_cloud = '/'.join([cf.cloudpath, edges_dir_cloud])
     
     # Check if edges already exist at destination
     if cf.isdir(edges_dir_cloud):
@@ -124,8 +121,8 @@ def edges_to_graphene_blockwise(fragments_file,
         else:
             raise RuntimeError(f'Edges already exist at path {cloudpath}')
             
-    fragments = daisy.open_ds(fragments_file, 'frags')
-    chunk_size = daisy.Coordinate(chunk_voxel_size)[::-1] * fragments.voxel_size
+    fragments = open_ds(fragments_file, 'frags')
+    chunk_size = Coordinate(chunk_voxel_size) * fragments.voxel_size
     total_roi = fragments.roi
     voxel_size = fragments.voxel_size
 
@@ -154,11 +151,13 @@ def edges_to_graphene_blockwise(fragments_file,
   
     logging.info('Starting block-wise translation...')
     logging.info(f'Translating using db: {db_name}')
+    logging.info(f'Destination: {edges_dir_cloud}')
 
-    daisy.run_blockwise(
+    task = daisy.Task(
+                task_id = f'upload_edges_{db_name}',
                 total_roi = fragments.roi,
-                read_roi = daisy.Roi((0,0,0), chunk_size),
-                write_roi = daisy.Roi((0,0,0), chunk_size),
+                read_roi = Roi((0,0,0), chunk_size),
+                write_roi = Roi((0,0,0), chunk_size),
                 process_function = lambda: translate_edges_worker(
                                                     db_host,
                                                     db_name,
@@ -178,6 +177,7 @@ def edges_to_graphene_blockwise(fragments_file,
                 read_write_conflict = False,
                 fit = 'shrink'
                        )
+    daisy.run_blockwise([task])
     
     info_ingest = db['info_ingest']
 
@@ -226,7 +226,7 @@ def translate_edges_worker(db_host,
         
             MongoDB collection containing edges to translate and upload.
             
-        total_roi (`class:daisy.Roi`):
+        total_roi (`class:Roi`):
         
             Total region of interest covered by the dataset.
         
@@ -267,196 +267,194 @@ def translate_edges_worker(db_host,
 
     trs_coll = db['ids_to_graphene']
     blocks_in_PCG = db['blocks_edges_in_PCG']
+    edges_coll = db[edges_collection]
     
     client = daisy.Client()
     
-    # Obtain rag provider
-    rag_provider = daisy.persistence.MongoDbGraphProvider(
-                                                 db_name,
-                                                 db_host,
-                                                 mode = 'r',
-                                                 directed = False,
-                                                 edges_collection = edges_collection,
-                                                 position_attribute = ['center_z','center_y','center_x'])
-    
     while True:
             
-        block = client.acquire_block()
+        with client.acquire_block() as block:
 
-        if block is None: 
-            break
+            if block is None: 
+                break
 
-        start = time.time()
+            start = time.time()
+            roi = block.read_roi  
 
-        roi = block.read_roi  
-        # Extended cube including half of adjacent chunks (instead of whole chunks to avoid loading too much data)
-        extended_roi = roi.grow(daisy.Coordinate(chunk_size)/2, 
-                                daisy.Coordinate(chunk_size)/2) 
+            chunk_coord = get_chunk_coord(fragments = None,
+                                          chunk_roi = roi, 
+                                          chunk_size = chunk_size,
+                                          total_roi = total_roi)
 
-        # Obtain graphene chunk coordinates and chunk ID
-        chunk_coord = get_chunk_coord(fragments = None,
-                                      chunk_roi = roi, 
-                                      chunk_size = chunk_size,
-                                      total_roi = total_roi)
+            # Gather fragment IDs and info for chunks at the interface of main chunk
+            chunk_list = [chunk_coord]
+            adj_frag_ids = []
+            for d in [-1, 1]:
+                for dim in range(3):
+                    diff = np.zeros([3], dtype=int)
+                    diff[dim] = d
+                    adj_chunk_coord = chunk_coord + diff
 
-        main_chunk_id = get_chunkId(bits_per_chunk_dim, 
-                                    chunk_coord = chunk_coord)
-       
-        # Get translation dict for main chunk and adjacents
-        dic = trs_coll.find_one({'chunk_coord':chunk_coord},{'graphene_chunk_id':1,
-                                                                      'initial_ids':1, 
-                                                                      'graphene_ids':1})
-        ids_to_pcg = dict({dic['graphene_chunk_id']:dict(zip(dic['initial_ids'],
-                                                             dic['graphene_ids'])
-                                                              )})
+                    if not np.any(adj_chunk_coord < 0):
+                        chunk_list.append(adj_chunk_coord.tolist())
 
-        assert main_chunk_id == dic['graphene_chunk_id']
-        
-        for d in [-1, 1]:
-            for dim in range(3):
-                diff = np.zeros([3], dtype=int)
-                diff[dim] = d
-                adj_chunk_coord = chunk_coord + diff
-                dic = trs_coll.find_one({'chunk_coord':adj_chunk_coord.tolist()},{'graphene_chunk_id':1,
-                                                                                  'initial_ids':1,
-                                                                                  'graphene_ids':1})
-                if dic:
-                    ids_to_pcg.update({dic['graphene_chunk_id']:dict(zip(dic['initial_ids'],
-                                                                         dic['graphene_ids'])
-                                                                                            )})
-        
-        # Only keep nodes within supercube
-        graph = rag_provider[extended_roi]
+            chunk_ids = get_chunkId(bits_per_chunk_dim, 
+                                    chunk_coord = chunk_list)
 
-        out_nodes = []
-        nodes = []
+            # Produce a look-up table with initial_ids and their translation to graphene
+            # From here we use pandas because it is much faster
+            try:
+                query = list(trs_coll.find({'graphene_chunk_id':{'$in': chunk_ids.tolist()}},
+                                           {'_id':0,
+                                            'graphene_chunk_id':1, 
+                                            'initial_ids':1, 
+                                            'graphene_ids':1}))
+            except:
+                # Query size might exceed mongodb limit, so we split it
+                query = []
+                for chunk in chunk_ids:
+                    query += list(trs_coll.find({'graphene_chunk_id':{'$in':chunk}},
+                                                {'_id':0,
+                                                 'graphene_chunk_id':1, 
+                                                 'initial_ids':1, 
+                                                 'graphene_ids':1}))
 
-        for node, data in graph.nodes(data=True):
-            if 'center_z' in data:
-                nodes.append((node,
-                              data['center_z'], data['center_y'], data['center_x']))
-            else:
-                out_nodes.append(node)
+            nodes_info = []
+            for dic in query:
+                nodes_info.append(np.vstack([np.repeat(dic['graphene_chunk_id'], len(dic['initial_ids'])), dic['initial_ids'], dic['graphene_ids']]).T)
 
-        nodes_info = {}
-        chunk_shape = daisy.Coordinate(chunk_size) / voxel_size
+            translation_table = pd.DataFrame(np.vstack(nodes_info), columns=['graphene_chunk_id', 'initial_id', 'graphene_id'])
+            translation_table.drop(translation_table[translation_table.initial_id == 0].index, inplace=True)
 
-        for node, center_z, center_y, center_x in nodes:
-            # Get local (dataset) node position
-            z = (center_z - total_offset[0]) // voxel_size[0]
-            y = (center_y - total_offset[1]) // voxel_size[1]
-            x = (center_x - total_offset[2]) // voxel_size[2]
-            # Get local chunk coordinates
-            chunk_z = z // chunk_shape[0]
-            chunk_y = y // chunk_shape[1]
-            chunk_x = x // chunk_shape[2]
+            ##### Query edges #####
 
-            chunk_id = get_chunkId(bits_per_chunk_dim, 
-                                   chunk_coord = [chunk_z, chunk_y, chunk_x])
-            
-            if chunk_id not in ids_to_pcg.keys():
-                continue
+            main_chunk_id = chunk_ids[0]
+            main_chunk_frag_ids = translation_table.loc[translation_table.graphene_chunk_id == main_chunk_id].initial_id.to_list()
 
-            nodes_info[node] = {
-                                'zyx': [z,y,x],
-                                'node_id': ids_to_pcg[chunk_id][node],
-                                'chunk_id': chunk_id,
-                                'in_chunk': chunk_id == main_chunk_id
-                               }
+            # Separate queries to fit in memory (limit to query size in mongodb)
+            query_in = list(edges_coll.find({'$and': [{'u':{'$in': main_chunk_frag_ids}}, 
+                                                      {'v':{'$in': main_chunk_frag_ids}}]},
+                                            {'_id': 0, 
+                                             'u': 1,
+                                             'v': 1,
+                                             'merge_score': 1}))
 
-        # Compute in_chunk and between_chunk edges
-        edges = [] # u, v, affinity score, type (in, between, cross)
-        
-        for u, v, data in graph.edges(data=True):
-            # Affinity score = 1 - merge_score (hierarchy of merges, early = best)
-            affinity = 1.0 - data['merge_score']
-            # If one of the nodes is not in supercube, we don't care
-            if u not in nodes_info or v not in nodes_info:    
-                continue
-            # If both nodes are in main chunk, it's in_chunk edge
-            if nodes_info[u]['in_chunk'] and nodes_info[v]['in_chunk']:
-                edges.append([nodes_info[u]['node_id'],
-                              nodes_info[v]['node_id'],
-                              affinity, 'in'])
-            # If only one of the nodes is in main chunk, it's between_chunk edge
-            elif nodes_info[u]['in_chunk']:
-                edges.append([nodes_info[u]['node_id'],
-                              nodes_info[v]['node_id'],
-                              affinity,
-                              'between'])
-            elif nodes_info[v]['in_chunk']:
-                edges.append([nodes_info[v]['node_id'],
-                              nodes_info[u]['node_id'],
-                              affinity,
-                              'between'])
+            adj_frag_ids = translation_table.loc[translation_table.graphene_chunk_id != main_chunk_id].initial_id.to_list()
+            ### From main chunk to adjacent
+            try:
+                query_bt_from = list(edges_coll.find({'$and':[{'u':{'$in': main_chunk_frag_ids}}, 
+                                                              {'v':{'$in': adj_frag_ids}}]},
+                                                     {'_id': 0,
+                                                      'u': 1,
+                                                      'v': 1,
+                                                      'merge_score': 1}))
+            except:
+                query_bt_from = []
+                for chunk in chunk_ids[1:]:
+                    query_bt_from += list(edges_coll.find({'$and':[{'u':{'$in': main_chunk_frag_ids}}, 
+                                                                   {'v':{'$in': translation_table.loc[translation_table.graphene_chunk_id == chunk].initial_id.to_list()}}]},
+                                                          {'_id': 0,
+                                                           'u': 1,
+                                                           'v': 1,
+                                                           'merge_score': 1}))
 
-        # Get nodes that were cut at boundaries (present in two adjacent chunks)
-        # They will be linked by cross_edges
-        adj_chunk_ids = [chunk for chunk in ids_to_pcg.keys() if chunk != main_chunk_id]
+            ### To main chunk from adjacent
+            try:
+                query_bt_to = list(edges_coll.find({'$and':[{'u':{'$in': adj_frag_ids}}, 
+                                                            {'v':{'$in': main_chunk_frag_ids}}]},
+                                                   {'_id': 0,
+                                                    'u': 1,
+                                                    'v': 1,
+                                                    'merge_score': 1}))
+            except:
+                query_bt_to = []
+                for chunk in chunk_ids[1:]:
+                    query_bt_to += list(edges_coll.find({'$and':[{'u':{'$in': translation_table.loc[translation_table.graphene_chunk_id == chunk].initial_id.to_list()}}, 
+                                                                 {'v':{'$in': main_chunk_frag_ids}}]},
+                                                        {'_id': 0,
+                                                         'u': 1,
+                                                         'v': 1,
+                                                         'merge_score': 1}))
+                
+            # Edges in chunk
+            # in_chunk: edges between supervoxels within a chunk
+            in_edges_df = pd.DataFrame(query_in, columns=['u', 'v', 'merge_score'])
+            in_edges_df = in_edges_df.merge(translation_table.loc[translation_table.graphene_chunk_id == main_chunk_id], 'left', left_on='u', right_on='initial_id') \
+                                .drop(columns='initial_id') \
+                                .rename(columns={'graphene_chunk_id': 'u_graphene_chunk_id', 'graphene_id': 'u_graphene_id'})
+            in_edges_df = in_edges_df.merge(translation_table.loc[translation_table.graphene_chunk_id == main_chunk_id], 'left', left_on='v', right_on='initial_id') \
+                                .drop(columns='initial_id') \
+                                .rename(columns={'graphene_chunk_id': 'v_graphene_chunk_id', 'graphene_id': 'v_graphene_id'})
 
-        for node in ids_to_pcg[main_chunk_id].keys():
-            cross_edges = []
-            for chunk in adj_chunk_ids:
-                try:
-                    if ids_to_pcg[main_chunk_id][node]:
-                        cross_edges.append([ids_to_pcg[main_chunk_id][node], 
-                                            ids_to_pcg[chunk][node]])
-                except:
-                    continue
+            in_chunk_edges = Edges(*in_edges_df[['u_graphene_id', 'v_graphene_id']].to_numpy(dtype=np.uint64).T)
+            in_chunk_edges.affinities = (1.0 - in_edges_df['merge_score']).to_numpy(np.float32)
 
-            if cross_edges:
-                for e in cross_edges:
-                    edges.append([e[0], e[1], float('inf'), 'cross'])
+            # If there is a duplicated initial ID, it means it exists in two chunks
+            # In that case, we don't consider it for between edges and create a cross edge from scratch
+            # Each side of the split fragment is contained in in_chunk edges
 
-        # Segregate edges and upload to cloud
-        # in_chunk: edges between supervoxels within a chunk
-        in_chunk_edges = Edges([e[0] for e in edges if e[3] == 'in'],
-                               [e[1] for e in edges if e[3] == 'in'])
-        in_chunk_edges.affinities = np.array([e[2] for e in edges if e[3] == 'in'], dtype=np.float32)
+            split_fragments = translation_table.loc[translation_table.initial_id.duplicated()].copy()
+            translation_table = translation_table.loc[~translation_table.initial_id.duplicated()]
 
-        # between_chunks: edges between supervoxels across chunks
-        between_chunk_edges = Edges([e[0] for e in edges if e[3] == 'between'],
-                                    [e[1] for e in edges if e[3] == 'between'])
-        between_chunk_edges.affinities = np.array([e[2] for e in edges if e[3] == 'between'], dtype=np.float32)
+            # Edges between chunks
+            # between_chunks: edges between supervoxels across chunks
+            bt_edges_df = pd.DataFrame(query_bt_from + query_bt_to,columns=['u', 'v', 'merge_score'])
+            bt_edges_df = bt_edges_df[~bt_edges_df.isin(split_fragments.initial_id)]
 
-        # cross_chunk: edges between parts of the same supervoxel before chunking, split across chunks
-        cross_chunk_edges = Edges([e[0] for e in edges if e[3] == 'cross'], 
-                                  [e[1] for e in edges if e[3] == 'cross'])
-        cross_chunk_edges.affinities = np.array([e[2] for e in edges if e[3] == 'cross'], dtype=np.float32)
- 
-        edges_proto_d = {
-                EDGE_TYPES.in_chunk: in_chunk_edges,
-                EDGE_TYPES.between_chunk: between_chunk_edges,
-                EDGE_TYPES.cross_chunk: cross_chunk_edges
+            bt_edges_df = bt_edges_df.merge(translation_table, 'left', left_on='u', right_on='initial_id') \
+                                .drop(columns='initial_id') \
+                                .rename(columns={'graphene_chunk_id': 'u_graphene_chunk_id', 'graphene_id': 'u_graphene_id'})
+            bt_edges_df = bt_edges_df.merge(translation_table, 'left', left_on='v', right_on='initial_id') \
+                                .drop(columns='initial_id') \
+                                .rename(columns={'graphene_chunk_id': 'v_graphene_chunk_id', 'graphene_id': 'v_graphene_id'})
+
+            between_chunk_edges = Edges(*bt_edges_df[['u_graphene_id', 'v_graphene_id']].to_numpy(dtype=np.uint64).T)
+            between_chunk_edges.affinities = (1.0 - bt_edges_df['merge_score']).to_numpy(np.float32)
+
+            # Edges cross chunk
+            # cross_chunk: edges between parts of the same supervoxel before chunking, split across chunks
+            cross_edges_df = split_fragments.loc[split_fragments.graphene_chunk_id != main_chunk_id] \
+                                    .merge(split_fragments.loc[split_fragments.graphene_chunk_id == main_chunk_id], 'left', left_on='initial_id', right_on='initial_id') \
+                                    .rename(columns={'graphene_id_x': 'v_graphene_id', 'graphene_id_y': 'u_graphene_id'})
+
+
+            cross_chunk_edges = Edges(*cross_edges_df[['u_graphene_id', 'v_graphene_id']].to_numpy(dtype=np.uint64).T)
+            cross_chunk_edges.affinities = np.repeat(np.float32('inf'), len(cross_edges_df))
+
+            # Protobuf format
+            edges_proto_d = {
+                    EDGE_TYPES.in_chunk: in_chunk_edges,
+                    EDGE_TYPES.between_chunk: between_chunk_edges,
+                    EDGE_TYPES.cross_chunk: cross_chunk_edges
+                            }
+            end = time.time()
+
+            put_chunk_edges(edges_dir_cloud, 
+                            chunk_coord[::-1], # x,y,z
+                            edges_proto_d, 
+                            compression_level = 22)
+
+            if write_local:      
+                logging.info('WRITE')
+                write_chunk_edges_local(edges_dir_local, 
+                                        chunk_coord[::-1], # x,y,z
+                                        edges_proto_d, 
+                                        compression_level = 22)
+
+            # Write document to keep track of blocks done
+            document = {
+                   'num_cpus': num_workers,
+                   'block_id': block.block_id,
+                   'graphene_chunk_coord': list(map(int, chunk_coord[::-1])),
+                   'read_roi': (block.read_roi.get_begin(),
+                                block.read_roi.get_shape()),
+                   'write_roi': (block.write_roi.get_begin(),
+                                 block.write_roi.get_shape()),
+                   'start': start,
+                   'duration': time.time() - start
                         }
 
-        put_chunk_edges(edges_dir_cloud, 
-                        chunk_coord[::-1], # x,y,z
-                        edges_proto_d, 
-                        compression_level = 22)
-        
-        if write_local:          
-            write_chunk_edges_local(edges_dir_local, 
-                                    chunk_coord[::-1], # x,y,z
-                                    edges_proto_d, 
-                                    compression_level = 22)
-
-        # Write document to keep track of blocks done
-        document = {
-               'num_cpus': num_workers,
-               'block_id': block.block_id,
-               'graphene_chunk_coord': chunk_coord[::-1],
-               'read_roi': (block.read_roi.get_begin(),
-                            block.read_roi.get_shape()),
-               'write_roi': (block.write_roi.get_begin(),
-                             block.write_roi.get_shape()),
-               'start': start,
-               'duration': time.time() - start
-                    }
-               
-        blocks_in_PCG.insert_one(document)
-
-        client.release_block(block, ret=0)
+            blocks_in_PCG.insert_one(document)
 
 
 def check_block(blocks_in_PCG, block):
