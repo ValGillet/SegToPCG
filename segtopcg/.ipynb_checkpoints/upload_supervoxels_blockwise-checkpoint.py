@@ -12,6 +12,8 @@ import traceback
 from cloudvolume import CloudVolume
 from cloudfiles import CloudFiles
 from datetime import date
+from funlib.geometry import Roi, Coordinate
+from funlib.persistence import open_ds
 from funlib.segment.arrays.replace_values import replace_values
 
 logging.basicConfig(level=logging.INFO)
@@ -57,7 +59,7 @@ def supervoxel_to_graphene_blockwise(fragments_file,
         
         chunk_voxel_size ([3] list of ``int``):
         
-            Size of a chunk in number of voxels (XYZ).
+            Size of a chunk in number of voxels (ZYX).
             
         cloudvolume_provenance (``str``):
             
@@ -83,8 +85,8 @@ def supervoxel_to_graphene_blockwise(fragments_file,
     '''
     
     # Variables
-    fragments = daisy.open_ds(fragments_file, 'frags')
-    chunk_size = daisy.Coordinate(chunk_voxel_size) * fragments.voxel_size
+    fragments = open_ds(fragments_file, 'frags')
+    chunk_size = Coordinate(chunk_voxel_size) * fragments.voxel_size
     bits_per_chunk_dim = get_nbit_chunk_coord(fragments, chunk_size)
     
     db_host = None if len(db_host) == 0 else db_host
@@ -93,7 +95,7 @@ def supervoxel_to_graphene_blockwise(fragments_file,
     ids_to_graphene = db['ids_to_graphene']
     
     cf = CloudFiles(cloudpath)
-    supervoxels_dir = '/'.join(cf.cloudpath, supervoxels_dir)
+    supervoxels_dir = '/'.join([cf.cloudpath, supervoxels_dir])
     
     if 'blocks_translated' not in db.list_collection_names():
         blocks_translated = db['blocks_translated']
@@ -102,6 +104,7 @@ def supervoxel_to_graphene_blockwise(fragments_file,
                   name='block_id')
     elif start_over:
         db.drop_collection('blocks_translated')
+        db.drop_collection('ids_to_graphene')
         blocks_translated = db['blocks_translated']
         blocks_translated.create_index(
                                        [('block_id', pymongo.ASCENDING)],
@@ -154,9 +157,10 @@ def supervoxel_to_graphene_blockwise(fragments_file,
     logging.info(f'Starting nodes translation with chunk size: {chunk_size}') 
     
     # Start blockwise translation and upload
-    daisy.run_blockwise(total_roi = fragments.roi,
-                        read_roi = daisy.Roi((0,0,0), chunk_size),
-                        write_roi = daisy.Roi((0,0,0), chunk_size),
+    task = daisy.Task(task_id = f'upload_supervoxels_{db_name}',
+                        total_roi = fragments.roi,
+                        read_roi = Roi((0,0,0), chunk_size),
+                        write_roi = Roi((0,0,0), chunk_size),
                         process_function = lambda: upload_supervoxels_worker(
                                                                         fragments_file,
                                                                         bits_per_chunk_dim,
@@ -172,6 +176,7 @@ def supervoxel_to_graphene_blockwise(fragments_file,
                         read_write_conflict = False,
                         fit = 'shrink'
                        )
+    daisy.run_blockwise([task])
 
     info_ingest = db['info_ingest']
     doc_ingest = {
@@ -231,7 +236,7 @@ def upload_supervoxels_worker(fragments_file,
             Number of workers to distribute the tasks to. Used by the worker for documenting the task.
     '''
     
-    fragments = daisy.open_ds(fragments_file, 'frags')
+    fragments = open_ds(fragments_file, 'frags')
     
     # Initiate MongoDB client and collections
     client = pymongo.MongoClient(db_host)
@@ -242,73 +247,70 @@ def upload_supervoxels_worker(fragments_file,
     client = daisy.Client()
     
     while True:
-        block = client.acquire_block()
+    
+        with client.acquire_block() as block:
 
-        if block is None:
-            break
-        
-        start = time.time()
-        
-        # Compute new supervoxel IDs
-        chunk_coord = get_chunk_coord(fragments, block.read_roi, chunk_size) # z,y,x
-        chunk_id = get_chunkId(bits_per_chunk_dim, 
-                               block.read_roi, 
-                               chunk_size, 
-                               chunk_coord = chunk_coord) # zyx chunk coord
-        frag_id, seg_id = get_segId(fragments, 
-                                    block.read_roi, 
-                                    db_name, 
-                                    db_host, 
-                                    output_data = False)
-
-        new_ids = []
-        for x in seg_id:
-            if x == 0:
-                nid = np.uint64(0)
-            else:
-                nid = chunk_id | np.uint64(x)
-            new_ids.append(nid)
-
-        data = fragments.intersect(block.read_roi)
-        data = data.to_ndarray()
-        
-        graphene_data = replace_values(data, frag_id, new_ids, inplace = False)    
-        
-        # Upload data
-        try:
-            z1,y1,x1 = block.read_roi.get_begin()//fragments.voxel_size + daisy.Coordinate([0,13078,0])
-            z2,y2,x2 = block.read_roi.get_end()//fragments.voxel_size + daisy.Coordinate([0,13078,0])
-            vol[x1:x2, y1:y2, z1:z2] = np.transpose(graphene_data, (2,1,0))
-        except Exception as e:
-            print(f'Error: {e}')
-            traceback.print_exc()
-
-        document = {
-                'num_cpus': num_workers,
-                'block_id': block.block_id,
-                'graphene_chunk_id': int(chunk_id),    
-                'read_roi': (block.read_roi.get_begin(),
-                             block.read_roi.get_shape()
-                            ),
-                'write_roi': (block.write_roi.get_begin(),
-                              block.write_roi.get_shape()
-                             ),
-                'start': start,
-                'duration': time.time() - start
-                   }
-
-        doc_ids_to_graphene = {
-                        'block_id': block.block_id,
-                        'chunk_coord': chunk_coord,
-                        'graphene_chunk_id': int(chunk_id),
-                        'initial_ids': list(map(int, frag_id)),
-                        'graphene_ids': list(map(int, new_ids))
-                              }
-        
-        blocks_translated.insert_one(document)
-        ids_to_graphene_collection.insert_one(doc_ids_to_graphene)
-
-        client.release_block(block, ret=0)
+            if block is None:
+                break
+            
+            start = time.time()
+            
+            data = fragments.intersect(block.read_roi)
+            data = data.to_ndarray()
+            
+            frag_ids = np.unique(data)
+            
+            # Compute new supervoxel IDs
+            chunk_coord = get_chunk_coord(fragments, block.read_roi, chunk_size) # z,y,x
+            chunk_id = get_chunkId(bits_per_chunk_dim, 
+                                   block.read_roi, 
+                                   chunk_size, 
+                                   chunk_coord = chunk_coord) # zyx chunk coord
+            frag_ids, seg_ids = get_segId(frag_ids)
+    
+            new_ids = []
+            for x in seg_ids:
+                if x == 0:
+                    nid = np.uint64(0)
+                else:
+                    nid = chunk_id | np.uint64(x)
+                new_ids.append(nid)
+            
+            graphene_data = replace_values(data, frag_ids, new_ids, inplace = False)    
+            
+            # Upload data
+            try:
+                z1,y1,x1 = block.read_roi.get_begin()//fragments.voxel_size 
+                z2,y2,x2 = block.read_roi.get_end()//fragments.voxel_size
+                vol[x1:x2, y1:y2, z1:z2] = np.transpose(graphene_data, (2,1,0))
+            except Exception as e:
+                print(f'Error: {e}')
+                traceback.print_exc()
+    
+            document = {
+                    'num_cpus': num_workers,
+                    'block_id': block.block_id,
+                    'graphene_chunk_id': int(chunk_id),    
+                    'read_roi': (block.read_roi.get_begin(),
+                                 block.read_roi.get_shape()
+                                ),
+                    'write_roi': (block.write_roi.get_begin(),
+                                  block.write_roi.get_shape()
+                                 ),
+                    'start': start,
+                    'duration': time.time() - start
+                       }
+    
+            doc_ids_to_graphene = {
+                            'block_id': block.block_id,
+                            'graphene_chunk_coord': list(map(int, chunk_coord[::-1])),
+                            'graphene_chunk_id': int(chunk_id),
+                            'initial_ids': list(map(int, frag_ids)),
+                            'graphene_ids': list(map(int, new_ids))
+                                  }
+            
+            blocks_translated.insert_one(document)
+            ids_to_graphene_collection.insert_one(doc_ids_to_graphene)
 
 
 def check_block(blocks_translated, block):

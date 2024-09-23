@@ -1,0 +1,9 @@
+{
+  "fragments_file": "/mnt/raid/segmentation/eciton/eciton_FB_setup_03_0_2_FBOK_600000_0/eciton_FB_setup_03_0_2_FBOK_600000_0_frags.zarr",
+  "cloudpath": "gs://heinze-lab/eciton_FB",
+  "db_host": "",
+  "db_name": "eciton_FB_setup_03_0_2_FBOK_600000_0",
+  "chunk_voxel_size": [100, 500, 500],
+  "cloudvolume_provenance": "Eciton FB, first upload attempt",
+  "num_workers": 10
+}

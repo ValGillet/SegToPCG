@@ -6,8 +6,6 @@ from funlib.segment.arrays.replace_values import replace_values
 
 
 def get_segId(frag_ids,
-              db_name, 
-              db_host, 
               fragments=None,
               chunk_roi=None):
 
