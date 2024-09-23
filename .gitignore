@@ -3,6 +3,8 @@ config/
 *egg-info
 config_templates/generate_config.py
 temp/
-daisy_logs/
+daisy_logs/*
+config*.json
+*.txt
 .ipynb_checkpoints/
 __pycache__/
