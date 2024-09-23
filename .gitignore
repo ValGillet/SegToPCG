@@ -1,14 +1,13 @@
 *.ipynb_checkpoints
 *egg-info
 
-segtopcg/config/
-segtopcg/config_templates/generate_config.py
+config/
+config_templates/generate_config.py
 temp/
 
-segtopcg/daisy_logs
+daisy_logs/
 
 segtopcg/*.json
-segtopcg/*.txt
+*.txt
 
-segtopcg/.ipynb_checkpoints
-segtopcg/__pycache__
+__pycache__

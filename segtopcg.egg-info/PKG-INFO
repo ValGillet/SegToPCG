@@ -1,7 +1,0 @@
-Metadata-Version: 2.1
-Name: segtopcg
-Version: 0.0.1
-Summary: Translate segmentation obtained from funkelab method to PyChunkedGraph graphene and protobuf format
-Author: Valentin Gillet
-Author-email: valentin.gillet@biol.lu.se
-Keywords: python,segmentation

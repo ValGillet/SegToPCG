@@ -1,8 +1,0 @@
-                                                                                                                                                            ERROR:daisy.client:Block upload_supervoxels_eciton_FB_setup_03_0_2_FBOK_600000_0/456 with read ROI [20150:25150, 86976:90976, 220640:224640] (5000, 4000, 4000) and write ROI [20150:25150, 86976:90976, 220640:224640] (5000, 4000, 4000) failed in worker 10
-Traceback (most recent call last):
-  File "/home/autoseg/anaconda3/envs/segtopcg/lib/python3.9/site-packages/daisy/client.py", line 84, in acquire_block
-    yield block
-  File "/mnt/hdd1/SRC/SegToPCG/segtopcg/upload_supervoxels_blockwise.py", line 269, in upload_supervoxels_worker
-    frag_ids, seg_ids = get_segId(frag_ids)
-TypeError: get_segId() missing 2 required positional arguments: 'db_name' and 'db_host'
-upload_supervoxels_eciton_FB_setup_03_0_2_FBOK_600000_0 ▶:   0%|                                     | 0/19200 [00:05<?, ?blocks/s, ⧗=0, ▶=9, ✔=0, ✗=0, ∅=0]
