@@ -40,7 +40,7 @@ def get_segId(frag_ids,
         
     frag_ids = frag_ids[frag_ids>0]
         
-    if len(frag_ids):
+    if np.all(frag_ids == 0):
         return np.array([0], dtype = np.uint64), np.array([0], dtype = np.uint64)
     
     frag_ids.sort()

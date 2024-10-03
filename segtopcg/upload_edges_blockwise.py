@@ -467,8 +467,8 @@ def check_block(blocks_in_PCG, block):
 if __name__ == '__main__':
     
     config_file = sys.argv[1]
-
+    
     with open(config_file, 'r') as f:
         config = json.load(f)
-
+    
     edges_to_graphene_blockwise(**config)

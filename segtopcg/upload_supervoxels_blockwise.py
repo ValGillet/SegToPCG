@@ -89,7 +89,6 @@ def supervoxel_to_graphene_blockwise(fragments_file,
     chunk_size = Coordinate(chunk_voxel_size) * fragments.voxel_size
     bits_per_chunk_dim = get_nbit_chunk_coord(fragments, chunk_size)
     
-    db_host = None if len(db_host) == 0 else db_host
     client = pymongo.MongoClient(db_host)
     db = client[db_name]
     ids_to_graphene = db['ids_to_graphene']
@@ -267,7 +266,7 @@ def upload_supervoxels_worker(fragments_file,
                                    chunk_size, 
                                    chunk_coord = chunk_coord) # zyx chunk coord
             frag_ids, seg_ids = get_segId(frag_ids)
-    
+            
             new_ids = []
             for x in seg_ids:
                 if x == 0:
@@ -275,9 +274,10 @@ def upload_supervoxels_worker(fragments_file,
                 else:
                     nid = chunk_id | np.uint64(x)
                 new_ids.append(nid)
+            new_ids = np.array(new_ids, dtype=np.uint64)
             
-            graphene_data = replace_values(data, frag_ids, new_ids, inplace = False)    
-            
+            graphene_data = replace_values(data, frag_ids, new_ids, inplace = False)
+                
             # Upload data
             try:
                 z1,y1,x1 = block.read_roi.get_begin()//fragments.voxel_size 
@@ -300,7 +300,7 @@ def upload_supervoxels_worker(fragments_file,
                     'start': start,
                     'duration': time.time() - start
                        }
-    
+            
             doc_ids_to_graphene = {
                             'block_id': block.block_id,
                             'graphene_chunk_coord': list(map(int, chunk_coord[::-1])),
