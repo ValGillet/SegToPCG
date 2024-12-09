@@ -2,6 +2,7 @@ from segtopcg.utils.utils_supervoxel import get_nbit_chunk_coord, get_chunk_coor
 from segtopcg.utils.utils_components import *
 
 import traceback
+import inspect
 import json
 import logging
 import numpy as np
@@ -124,7 +125,6 @@ def upload_components_chunkwise(
         raise RuntimeError(f'Components already exist at {components_dir}')
     
     if start_over:
-        items = list(cf.list(components_dir_cloud))
         logging.info('Deleting info database and starting over...')
         db['components_info'].drop()
     
@@ -293,5 +293,8 @@ if __name__ == '__main__':
     with open(config_file, 'r') as f:
         config = json.load(f)
 
-    upload_components_chunkwise(**config)
+    params = inspect.signature(upload_components_chunkwise).parameters
+    relevant_args = {k: v for k, v in config.items() if k in params}
+
+    upload_components_chunkwise(**relevant_args)
 

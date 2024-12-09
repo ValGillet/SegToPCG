@@ -2,6 +2,7 @@ from segtopcg.utils.utils_supervoxel import get_nbit_chunk_coord, get_chunk_coor
 from segtopcg.utils.utils_local import write_chunk_edges_local
 
 import daisy
+import inspect
 import json
 import logging
 import numpy as np
@@ -281,10 +282,10 @@ def translate_edges_worker(db_host,
             start = time.time()
             roi = block.read_roi  
 
-            chunk_coord = get_chunk_coord(fragments = None,
-                                          chunk_roi = roi, 
-                                          chunk_size = chunk_size,
-                                          total_roi = total_roi)
+            chunk_coord = get_chunk_coord(fragments=None,
+                                          chunk_roi=roi, 
+                                          chunk_size=chunk_size,
+                                          total_roi=total_roi)
 
             # Gather fragment IDs and info for chunks at the interface of main chunk
             chunk_list = [chunk_coord]
@@ -432,7 +433,7 @@ def translate_edges_worker(db_host,
             put_chunk_edges(edges_dir_cloud, 
                             chunk_coord[::-1], # x,y,z
                             edges_proto_d, 
-                            compression_level = 22)
+                            compression_level=22)
 
             if write_local:      
                 logging.info('WRITE')
@@ -470,5 +471,8 @@ if __name__ == '__main__':
     
     with open(config_file, 'r') as f:
         config = json.load(f)
+
+    params = inspect.signature(edges_to_graphene_blockwise).parameters
+    relevant_args = {k: v for k, v in config.items() if k in params}
     
-    edges_to_graphene_blockwise(**config)
+    edges_to_graphene_blockwise(**relevant_args)

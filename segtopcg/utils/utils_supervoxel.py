@@ -76,7 +76,6 @@ def get_chunk_list(fragments,
     n_chunks = np.ceil(np.array(ds.shape)/chunk_shape).astype(int)
 
     chunk_list = []
-    chunk_groups = []
     for ix, x in enumerate(range(n_chunks[2])):
         for iy, y in enumerate(range(n_chunks[1])):
             for iz, z in enumerate(range(n_chunks[0])):
@@ -157,7 +156,6 @@ def get_chunkId(bits_per_chunk_dim, fragments=None, chunk_roi=None, chunk_size=N
     '''
     
     layer_id = 1
-    
     
     if chunk_coord is None:
         chunk_coord = get_chunk_coord(fragments, chunk_roi, chunk_size) # z,y,x coordinates

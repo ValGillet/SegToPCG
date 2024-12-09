@@ -1,4 +1,5 @@
 import daisy
+import inspect
 import json
 import logging
 import numpy as np
@@ -130,11 +131,11 @@ def upload_image_data_blockwise(image_data_file,
                 total_roi = image_data.roi,
                 read_roi = Roi((0,0,0), chunk_size),
                 write_roi = Roi((0,0,0), chunk_size),
-                process_function = lambda: upload_supervoxels_worker(image_data_file,
-                                                                     vol,
-                                                                     db_host,
-                                                                     db_name,
-                                                                     num_workers),
+                process_function = lambda: upload_image_data_worker(image_data_file,
+                                                                    vol,
+                                                                    db_host,
+                                                                    db_name,
+                                                                    num_workers),
                 check_function = lambda b: check_block(blocks_image_uploaded,
                                                        b),
                 num_workers = num_workers,
@@ -154,16 +155,15 @@ def upload_image_data_blockwise(image_data_file,
     info_ingest.insert_one(doc_ingest)
 
 
-def upload_supervoxels_worker(image_data_file,
-                              vol,
-                              db_host,
-                              db_name,
-                              num_workers
+def upload_image_data_worker(image_data_file,
+                             vol,
+                             db_host,
+                             db_name,
+                             num_workers
                              ):
 
     '''
-    Start blockwise translation of supervoxel IDs into graphene format, and upload to Google cloud bucket (by default in "fragments" dir).
-    A look-up table for IDs is stored in MongoDB for future translation of edges.
+    Start blockwise upload of image data to Google cloud bucket (by default in "image_data" dir).
 
     Args:
     
@@ -247,4 +247,7 @@ if __name__ == '__main__':
     with open(config_file, 'r') as f:
         config = json.load(f)
     
-    upload_image_data_blockwise(**config)
+    params = inspect.signature(upload_image_data_blockwise).parameters
+    relevant_args = {k: v for k, v in config.items() if k in params}
+    
+    upload_image_data_blockwise(**relevant_args)

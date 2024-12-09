@@ -1,6 +1,7 @@
 from segtopcg.utils.utils_supervoxel import *
 
 import daisy
+import inspect
 import json
 import logging
 import numpy as np
@@ -91,7 +92,6 @@ def supervoxel_to_graphene_blockwise(fragments_file,
     
     client = pymongo.MongoClient(db_host)
     db = client[db_name]
-    ids_to_graphene = db['ids_to_graphene']
     
     cf = CloudFiles(cloudpath)
     supervoxels_dir = '/'.join([cf.cloudpath, supervoxels_dir])
@@ -327,5 +327,8 @@ if __name__ == '__main__':
     with open(config_file, 'r') as f:
         config = json.load(f)
 
-    supervoxel_to_graphene_blockwise(**config)
+    params = inspect.signature(supervoxel_to_graphene_blockwise).parameters
+    relevant_args = {k: v for k, v in config.items() if k in params}
+    
+    supervoxel_to_graphene_blockwise(**relevant_args)
 
