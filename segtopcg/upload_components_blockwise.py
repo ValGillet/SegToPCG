@@ -30,14 +30,15 @@ def upload_components_chunkwise(
                                 db_host,
                                 db_name,
                                 chunk_voxel_size,
-                                edges_threshold,
+                                edges_aff_threshold,
                                 num_workers,
                                 isolate_chunks_mode,
                                 group_size,
                                 overwrite=False,                    
                                 start_over=False,
-                                edges_dir_cloud = 'edges',
-                                components_dir_cloud='components'
+                                edges_dir_cloud='edges',
+                                components_dir_cloud='components',
+                                keep_datastack_progress=False
                                ):
     '''
     Start workers in parallel using multiprocessing. Workers compute and upload components per chunk by thresholding edges based on their affinity score. Components can be isolated from each other, either all or based on a metric (not yet implemented).
@@ -68,7 +69,7 @@ def upload_components_chunkwise(
         
             Size of a chunk in number of voxels (ZYX).
             
-        edges_threshold (``float``):
+        edges_aff_threshold (``float``):
         
             Affinity threshold used to compute connected components. Threshold corresponds to an affinity score from 0 (bad) to 1 (good): corresponds to 1-merge_score. Only affinity scores equal or above threshold are kept.
         
@@ -101,7 +102,6 @@ def upload_components_chunkwise(
         components_dir_cloud (``str``):
         
             Name of the components directory in the cloud bucket. "components" by default.
-            
     '''
 
     # Variables
@@ -129,6 +129,8 @@ def upload_components_chunkwise(
         db['components_info'].drop()
     
     logging.info(f'Components will be uploaded at {components_dir}')
+    if keep_datastack_progress:
+        logging.info('Will keep saved progress')
     
     # Prepare list of chunks to isolate
     chunk_list, n_chunks = get_chunk_list(fragments_file, chunk_size)
@@ -147,11 +149,12 @@ def upload_components_chunkwise(
     inputs = [[chunk_coord,
                components_dir,
                edges_dir_local,
-               edges_threshold,
+               edges_aff_threshold,
                db_host,
                db_name,
                chunks_to_cut,
-               group_size
+               group_size,
+               keep_datastack_progress
               ] for chunk_coord in chunk_list]
 
     try:
@@ -174,7 +177,7 @@ def upload_components_chunkwise(
                   'cloudpath': components_dir,
                   'frag_file': fragments_file,
                   'chunk_voxel_size': list(chunk_voxel_size),
-                  'edges_threshold': float(edges_threshold),
+                  'edges_threshold': float(edges_aff_threshold),
                   'isolate_chunks_mode': str(isolate_chunks_mode),
                   'group_size': group_size,
                   'date': date.today().strftime('%d%m%Y')
@@ -189,7 +192,8 @@ def connected_components_to_cloud_worker(chunk_coord,
                                          db_host,
                                          db_name,
                                          chunks_to_cut,
-                                         group_size
+                                         group_size,
+                                         keep_datastack_progress
                                         ):
     '''
     Worker script. Computes connected components by filtering edges based on an affinity threshold.
@@ -246,12 +250,26 @@ def connected_components_to_cloud_worker(chunk_coord,
     
     # Obtain all edges crossing into main chunk from any adjacent chunk considered
     edges, scores = get_main_chunk_edges(edges_dir, main_chunk, adj_chunk_list, bits_per_chunk_dim)
+
+    components = []
+    if keep_datastack_progress:
+        # If this is a re-ingest of a dataset that was worked on previously
+        # Requires to have ran download_components_progress.py
+        main_chunk_id = get_chunkId(bits_per_chunk_dim, chunk_coord=main_chunk[::-1])
+        progress = db['info_progress_save'].find_one({'chunk_id': int(main_chunk_id)})
+        if progress is not None:
+            components = progress['components']
+
+            # Remove these components from edges so that they don't mixed up
+            dump_nodes = np.concatenate(components).astype(np.uint64)
+            mask = ~np.isin(edges, dump_nodes).any(1)
+            edges = edges[mask]
+            scores = scores[mask]
     
     if edges.size:
         # Threshold edges
         # Only keep if affinity score >= threshold
         thresh_edges = edges[scores >= edges_threshold]
-        thresh_scores = scores[scores >= edges_threshold]
 
         # Get connected components
         G = nx.Graph()
@@ -261,9 +279,7 @@ def connected_components_to_cloud_worker(chunk_coord,
         nodes = np.unique(edges)
 
         G.add_nodes_from(nodes) # Include isolated nodes
-        components = [list(map(int, c)) for c in list(nx.connected_components(G))]
-    else:
-        components = []
+        components += [list(map(int, c)) for c in list(nx.connected_components(G))]
    
     # Upload
     if components:
@@ -297,4 +313,3 @@ if __name__ == '__main__':
     relevant_args = {k: v for k, v in config.items() if k in params}
 
     upload_components_chunkwise(**relevant_args)
-
